@@ -1,5 +1,7 @@
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 // import { supabase } from '@/lib/supabase'
@@ -25,28 +27,48 @@ export default function CustomersPage() {
   const [newCustomerName, setNewCustomerName] = useState('')
   const [addingCustomer, setAddingCustomer] = useState(false)
 
-  useEffect(() => {
-    checkAuth()
-    fetchCustomers()
-  }, [])
+  // useEffect(() => {
+  //   checkAuth()
+  //   fetchCustomers()
+  // }, [])
+
+  
+  // const checkAuth = async () => {
+  //   const { data: { session } } = await supabase.auth.getSession()
+    
+  //   if (!session) {
+  //     router.push('/login')
+  //     return
+  //   }
+
+  //   // Get user role
+  //   const { data: profile } = await supabase
+  //     .from('user_profiles')
+  //     .select('role')
+  //     .eq('id', session.user.id)
+  //     .single()
+    
+  //   setUserRole(profile?.role || 'operator')
+  // }
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    
-    if (!session) {
-      router.push('/login')
-      return
-    }
-
-    // Get user role
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('role')
-      .eq('id', session.user.id)
-      .single()
-    
-    setUserRole(profile?.role || 'operator')
+  const { data: { session } } = await supabase.auth.getSession()
+  
+  if (!session) {
+    router.push('/login')
+    return null
   }
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role')
+    .eq('id', session.user.id)
+    .single()
+  
+  setUserRole(profile?.role || 'operator')
+
+  return session
+}
 
   const fetchCustomers = async () => {
     setLoading(true)
@@ -61,6 +83,17 @@ export default function CustomersPage() {
     }
     setLoading(false)
   }
+
+  
+  useEffect(() => {
+  const init = async () => {
+    const session = await checkAuth()
+    if (session) {
+      await fetchCustomers()
+    }
+  }
+  init()
+}, [])
 
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault()
