@@ -1,0 +1,459 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 250, 250, 250;
+  --background-end-rgb: 255, 255, 255;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 0, 0, 0;
+    --background-start-rgb: 250, 250, 250;
+    --background-end-rgb: 255, 255, 255;
+  }
+}
+
+/* Base text styles - FORCE DARK TEXT */
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #1f2937;
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ensure all text has proper contrast */
+h1, h2, h3, h4, h5, h6 {
+  color: #111827;
+}
+
+p, span, li, div:not([class*="bg-"]) {
+  color: #374151;
+}
+
+/* Labels and form text */
+label {
+  color: #1f2937;
+  font-weight: 500;
+}
+
+/* Input fields */
+input, textarea, select {
+  color: #111827 !important;
+  background-color: #ffffff;
+  border-color: #d1d5db;
+}
+
+input::placeholder, textarea::placeholder {
+  color: #9ca3af !important;
+}
+
+/* Table text */
+th {
+  color: #111827;
+  font-weight: 600;
+}
+
+td {
+  color: #374151;
+}
+
+/* Links */
+a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+/* Buttons - keep button text readable */
+button {
+  color: #374151;
+}
+
+/* Primary buttons - override text to white */
+.bg-blue-600, .bg-blue-700, .bg-green-600, .bg-red-600, .bg-purple-600 {
+  color: white !important;
+}
+
+.bg-blue-600 button, .bg-blue-700 button {
+  color: white !important;
+}
+
+/* Cards and containers */
+.bg-white {
+  background-color: #ffffff;
+}
+
+.bg-gray-50 {
+  background-color: #f9fafb;
+}
+
+/* Better focus styles */
+*:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
+*:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Better scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Mobile optimizations */
+@media (max-width: 640px) {
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  
+  h1 {
+    font-size: 1.5rem;
+  }
+  
+  h2 {
+    font-size: 1.25rem;
+  }
+}
+
+/* Print styles - Optimized for A4 Portrait */
+@media print {
+  /* Hide all non-print elements */
+  header,
+  nav,
+  footer,
+  button:not(.print-button),
+  .no-print,
+  .print-controls,
+  .fixed,
+  .sticky,
+  .flex.flex-wrap.gap-4,
+  .flex.justify-between.items-center.mb-6,
+  .fixed.bottom-0,
+  .mobile-nav,
+  [onclick],
+  form button,
+  .bg-white.shadow-sm,
+  .bg-white.shadow,
+  .bg-gray-50 > header {
+    display: none !important;
+  }
+  
+  /* Hide lg:hidden elements */
+  [class*="lg:hidden"] {
+    display: none !important;
+  }
+  
+  /* Page setup for A4 Portrait */
+  @page {
+    size: A4 portrait;
+    margin: 2cm normal;
+  }
+  
+  /* Ensure body has white background and proper margins */
+  body {
+    background: white !important;
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 10pt !important;
+    line-height: 1.4 !important;
+  }
+  
+  /* Ensure all content containers are visible */
+  .container,
+  .max-w-7xl,
+  .mx-auto,
+  main,
+  .bg-white,
+  .rounded-xl,
+  .border,
+  [class*="p-"],
+  [class*="m-"] {
+    background: white !important;
+    color: black !important;
+    border-color: #ddd !important;
+    box-shadow: none !important;
+    border-width: 1px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  
+  /* Report container styling */
+  .bg-white.rounded-xl.border.overflow-hidden {
+    border: none !important;
+    box-shadow: none !important;
+  }
+  
+  /* Table styles for print - Optimized for A4 */
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+    margin: 10px 0 !important;
+    page-break-inside: avoid;
+    font-size: 9pt !important;
+  }
+  
+  thead {
+    display: table-header-group;
+  }
+  
+  tbody tr {
+    page-break-inside: avoid;
+  }
+  
+  th, td {
+    border: 1px solid #ccc !important;
+    padding: 6px 8px !important;
+    text-align: left !important;
+    vertical-align: top !important;
+    word-wrap: break-word !important;
+    white-space: normal !important;
+  }
+  
+  th {
+    background-color: #f0f0f0 !important;
+    font-weight: bold !important;
+    color: black !important;
+    font-size: 9pt !important;
+  }
+  
+  td {
+    color: black !important;
+    font-size: 8.5pt !important;
+  }
+  
+  /* Ensure all text is black for print */
+  .text-gray-800,
+  .text-gray-900,
+  .text-gray-700,
+  .text-gray-600,
+  .text-gray-500,
+  .text-blue-600,
+  .text-blue-700,
+  .text-green-600,
+  .text-red-600,
+  .text-purple-600,
+  .text-orange-600,
+  h1, h2, h3, h4, h5, h6,
+  p, span, div, label {
+    color: black !important;
+  }
+  
+  /* Headings for print */
+  h1, .text-2xl, .text-3xl {
+    font-size: 14pt !important;
+    margin-bottom: 8pt !important;
+  }
+  
+  h2, .text-xl {
+    font-size: 12pt !important;
+    margin-bottom: 6pt !important;
+  }
+  
+  /* Report header styling */
+  .print-header {
+    display: block !important;
+    text-align: center;
+    margin-bottom: 15px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #000;
+  }
+  
+  .print-header h1 {
+    font-size: 16pt;
+    margin-bottom: 4px;
+    font-weight: bold;
+  }
+  
+  .print-header p {
+    font-size: 9pt;
+    color: #666;
+  }
+  
+  /* Summary cards in print */
+  .grid .bg-gray-50,
+  .grid .bg-blue-50,
+  .grid [class*="bg-"] {
+    border: 1px solid #ddd !important;
+    background: #fafafa !important;
+    padding: 8px !important;
+  }
+  
+  /* Summary card text */
+  .grid .text-2xl {
+    font-size: 12pt !important;
+  }
+  
+  .grid .text-sm {
+    font-size: 8pt !important;
+  }
+  
+  /* Page breaks */
+  .page-break {
+    page-break-before: always;
+  }
+  
+  .page-break-after {
+    page-break-after: always;
+  }
+  
+  /* Avoid page breaks inside certain elements */
+  .report-section,
+  .stats-cards,
+  .entries-table {
+    page-break-inside: avoid;
+  }
+  
+  /* Ensure long text wraps */
+  td, th {
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+  
+  /* Reduce padding for print */
+  .p-6, .p-4, .p-3 {
+    padding: 4px !important;
+  }
+  
+  /* Ensure tables don't overflow */
+  .overflow-x-auto {
+    overflow: visible !important;
+  }
+  
+  /* Fix for mobile bottom nav */
+  .pb-16 {
+    padding-bottom: 0 !important;
+  }
+}
+
+/* Additional print utility classes */
+@media screen {
+  .print-only {
+    display: none !important;
+  }
+}
+
+@media print {
+  .print-only {
+    display: block !important;
+  }
+  .screen-only {
+    display: none !important;
+  }
+}
+
+/* A4 paper simulation for screen preview */
+@media screen {
+  .a4-preview {
+    background: white;
+    width: 210mm;
+    margin: 0 auto;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+  }
+}
+
+/* Improved text selection */
+::selection {
+  background: #3b82f6;
+  color: white;
+}
+
+::-moz-selection {
+  background: #3b82f6;
+  color: white;
+}
+
+/* Loading spinner animation */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Smooth transitions */
+.transition-all {
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Responsive table handling */
+@media (max-width: 640px) {
+  .table-responsive {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}
+
+@media print {
+  button,
+  .no-print,
+  .print-hide,
+  .bg-white.rounded-xl.border.p-6:not(.report-content *) {
+    display: none !important;
+  }
+  
+  /* Ensure report content is visible */
+  .report-content {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  
+  /* Remove shadows and borders for cleaner print */
+  .bg-white,
+  .border,
+  .rounded-xl {
+    box-shadow: none !important;
+    border: 1px solid #e5e7eb !important;
+  }
+  
+  /* Ensure tables are readable */
+  .report-table th,
+  .report-table td {
+    border: 1px solid #ddd !important;
+  }
+}
