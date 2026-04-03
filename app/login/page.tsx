@@ -76,13 +76,13 @@ export default function LoginPage() {
             <Image
               src="/logo/Nandlal-logo.jpg"
               alt="Nandlal Laundry Logo"
-              width={112}
-              height={112}
+              width={300}
+              height={200}
               className="mx-auto mb-4 object-contain"
               priority
             />
           </div>
-          <h1 className="text-3xl font-bold text-blue-700">Nandlal Laundry</h1>
+          <h1 className="text-3xl font-bold text-blue-800">Nandlal Laundry</h1>
           <p className="text-gray-600 mt-2">
             Enter your credentials to access the system
           </p>
@@ -190,7 +190,7 @@ export default function LoginPage() {
       </div>
 
       {/* Copyright footer */}
-      <p className="mt-6 text-center text-xs text-gray-400">
+      <p className="mt-6 text-center text-sm text-gray-400">
         &copy; {getCopyrightYears()} Made with{' '}
         <span className="text-red-500" aria-label="love">&#10084;</span>
         {' '}by{' '}
