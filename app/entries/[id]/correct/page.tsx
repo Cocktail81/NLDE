@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect, FormEvent } from 'react'
+import { useState, useEffect, FormEvent, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import Navigation from '@/components/Navigation'
+import PageLayout from '@/components/layout/PageLayout'
 import CustomerAutocomplete from '@/components/CustomerAutocomplete'
 
 interface Customer {
@@ -45,15 +45,20 @@ export default function CorrectEntryPage() {
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false)
   const [newCustomerName, setNewCustomerName] = useState('')
   const [addingCustomer, setAddingCustomer] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
+  
+    const checkAuth = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      router.push('/login')
+      return
+    }
+    setAuthChecked(true)
+  }, [router])
 
-  useEffect(() => {
-    fetchOriginalEntry()
-  }, [entryId])
-
-  const fetchOriginalEntry = async () => {
+  const fetchOriginalEntry = useCallback(async () => {
     setFetching(true)
     
-    // Fetch the entry
     const { data: entry, error: entryError } = await supabase
       .from('entries')
       .select('*')
@@ -66,7 +71,6 @@ export default function CorrectEntryPage() {
       return
     }
 
-    // Fetch customer name
     const { data: customer } = await supabase
       .from('customers')
       .select('id, name')
@@ -84,7 +88,6 @@ export default function CorrectEntryPage() {
       total_items: (entry.ironing || 0) + (entry.saree_ironing || 0) + (entry.dry_cleaning || 0)
     })
 
-    // Pre-fill form with original values
     setDate(entry.entry_date)
     setSelectedCustomer({ id: entry.customer_id, name: customer?.name || 'Unknown' })
     setIroning(String(entry.ironing || 0))
@@ -92,8 +95,15 @@ export default function CorrectEntryPage() {
     setDryCleaning(String(entry.dry_cleaning || 0))
     
     setFetching(false)
-  }
+  }, [entryId])
 
+  useEffect(() => {
+    const init = async () => {
+      await checkAuth()
+      await fetchOriginalEntry()
+    }
+    init()
+  }, [checkAuth, fetchOriginalEntry])
   const handleAddCustomer = async (e: FormEvent) => {
     e.preventDefault()
     if (!newCustomerName.trim()) return
@@ -178,8 +188,8 @@ export default function CorrectEntryPage() {
         router.push('/entries')
       }, 2000)
 
-    } catch (err: any) {
-      setError(err.message || 'Failed to save correction')
+    } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to save correction')
     } finally {
       setLoading(false)
     }
@@ -203,42 +213,41 @@ export default function CorrectEntryPage() {
     )
   }
 
-  if (fetching) {
-    return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
-        <div className="max-w-4xl mx-auto text-center py-12">
+  if (fetching || !authChecked) {
+  return (
+    <PageLayout title="Correct Entry" showBackButton={true} customBackPath="/entries">
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mb-4"></div>
           <p className="text-gray-600">Loading entry...</p>
         </div>
       </div>
-    )
-  }
+    </PageLayout>
+  )
+}
 
-  if (error && !originalEntry) {
-    return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
-        <div className="max-w-4xl mx-auto">
-          <Navigation showBack backUrl="/entries" title="Error" />
-          <div className="bg-white rounded-xl border p-8 text-center">
-            <div className="text-5xl mb-4">❌</div>
-            <p className="text-red-600 font-medium">{error}</p>
-            <button
-              onClick={() => router.push('/entries')}
-              className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              Back to Entries
-            </button>
-          </div>
+   if (error && !originalEntry) {
+  return (
+    <PageLayout title="Error" showBackButton={true} customBackPath="/entries">
+      <div className="max-w-4xl mx-auto">
+        <div className="bg-white rounded-xl border p-8 text-center">
+          <div className="text-5xl mb-4">❌</div>
+          <p className="text-red-600 font-medium">{error}</p>
+          <button
+            onClick={() => router.push('/entries')}
+            className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Back to Entries
+          </button>
         </div>
       </div>
-    )
-  }
+    </PageLayout>
+  )
+}
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
-      <div className="max-w-4xl mx-auto">
-        {/* Navigation */}
-        <Navigation showBack backUrl="/entries" title="Correct Entry" />
+  <PageLayout title="Correct Entry" showBackButton={true} customBackPath="/entries">
+    <div className="max-w-4xl mx-auto">
         
         {/* Original Entry Summary */}
         {originalEntry && (
@@ -521,9 +530,10 @@ export default function CorrectEntryPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-    </div>
+                </div>
+                </div>              
+            )
+          }
+        </PageLayout>
   )
 }

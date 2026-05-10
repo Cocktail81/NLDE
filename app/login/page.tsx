@@ -72,14 +72,14 @@ export default function LoginPage() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-gray-100 p-4">
       <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
         <div className="text-center mb-8">
-          <div className="text-center mb-8">
+          <div className="mb-8 flex justify-center">
             <Image
               src="/logo/Nandlal-logo.jpg"
               alt="Nandlal Laundry Logo"
-              width={300}
-              height={200}
-              className="mx-auto mb-4 object-contain"
+              width={150}
+              height={150}
               priority
+              className="h-20 w-20 object-contain sm:h-24 sm:w-24 md:h-28 md:w-28"
             />
           </div>
           <h1 className="text-3xl font-bold text-blue-800">Nandlal Laundry</h1>

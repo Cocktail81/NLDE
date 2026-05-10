@@ -1,13 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import PageLayout from '@/components/layout/PageLayout'
 import { printReport } from '@/lib/printUtils'
 
 // Components
-import LoadingSpinner from './components/LoadingSpinner'
 import ReportTabs from './components/ReportTabs'
 import DailyReport from './components/DailyReport'
 import ChangeHistory from './components/ChangeHistory'
@@ -18,22 +17,83 @@ import DateRangeReport from './components/DateRangeReport'
 import { Entry, DailySummary, Customer, CorrectionEntry } from './types'
 
 // ============================================
+// TYPES FOR RAW DATA FROM SUPABASE
+// ============================================
+
+interface RawEntry {
+  id: string
+  entry_date: string
+  customer_id: string
+  ironing: number
+  saree_ironing: number
+  dry_cleaning: number
+  is_correction: boolean
+  correction_reason: string | null
+  customers?: { name: string } | { name: string }[] | null
+}
+
+interface CorrectionRawData {
+  id: string
+  entry_date: string
+  ironing: number
+  saree_ironing: number
+  dry_cleaning: number
+  correction_reason: string | null
+  created_at: string
+  previous_version_id: string
+  created_by: string
+  customers: { name: string }[]  // customers is always an array
+  user_profiles: { full_name: string }[] | null  // user_profiles is an array or null
+}
+
+interface DateRangeRawEntry {
+  id: string
+  entry_date: string
+  customer_id: string
+  ironing: number
+  saree_ironing: number
+  dry_cleaning: number
+  customers: { name: string } | { name: string }[] | null
+}
+
+interface CustomerReportRawEntry {
+  id: string
+  entry_date: string
+  ironing: number
+  saree_ironing: number
+  dry_cleaning: number
+  is_correction: boolean
+  customers: { name: string } | { name: string }[] | null
+}
+
+// ============================================
 // UTILITY FUNCTIONS
 // ============================================
 
 /** Formats a single entry from database to frontend structure */
-const formatEntry = (entry: any, customerName?: string): Entry => ({
-  id: entry.id,
-  entry_date: entry.entry_date,
-  customer_id: entry.customer_id,
-  customer_name: customerName || entry.customers?.name || 'Unknown',
-  ironing: entry.ironing || 0,
-  saree_ironing: entry.saree_ironing || 0,
-  dry_cleaning: entry.dry_cleaning || 0,
-  total: (entry.ironing || 0) + (entry.saree_ironing || 0) + (entry.dry_cleaning || 0),
-  is_correction: entry.is_correction || false,
-  correction_reason: entry.correction_reason
-})
+const formatEntry = (entry: RawEntry, customerName?: string): Entry => {
+  let extractedName = 'Unknown'
+  if (entry.customers) {
+    if (Array.isArray(entry.customers) && entry.customers.length > 0) {
+      extractedName = entry.customers[0].name
+    } else if (!Array.isArray(entry.customers) && entry.customers.name) {
+      extractedName = entry.customers.name
+    }
+  }
+  
+  return {
+    id: entry.id,
+    entry_date: entry.entry_date,
+    customer_id: entry.customer_id,
+    customer_name: customerName || extractedName,
+    ironing: entry.ironing || 0,
+    saree_ironing: entry.saree_ironing || 0,
+    dry_cleaning: entry.dry_cleaning || 0,
+    total: (entry.ironing || 0) + (entry.saree_ironing || 0) + (entry.dry_cleaning || 0),
+    is_correction: entry.is_correction || false,
+    correction_reason: entry.correction_reason
+  }
+}
 
 /** Calculates summary statistics from a list of entries */
 const calculateSummary = (entries: Entry[], dateLabel: string): DailySummary => ({
@@ -46,7 +106,7 @@ const calculateSummary = (entries: Entry[], dateLabel: string): DailySummary => 
 })
 
 /** Core CSV export function - creates and downloads CSV file */
-const exportToCSV = (data: any[], filename: string, headers: string[]) => {
+const exportToCSV = <T extends Record<string, unknown>>(data: T[], filename: string, headers: string[]) => {
   const csvRows = [headers.join(',')]
   
   for (const row of data) {
@@ -55,7 +115,6 @@ const exportToCSV = (data: any[], filename: string, headers: string[]) => {
       const value = row[key] !== undefined ? row[key] : ''
       const escaped = String(value).replace(/"/g, '""')
       
-      // Wrap in quotes if contains special characters
       if (escaped.includes(',') || escaped.includes('\n') || escaped.includes('"')) {
         return `"${escaped}"`
       }
@@ -64,7 +123,6 @@ const exportToCSV = (data: any[], filename: string, headers: string[]) => {
     csvRows.push(values.join(','))
   }
   
-  // Trigger download
   const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' })
   const link = document.createElement('a')
   const url = URL.createObjectURL(blob)
@@ -113,25 +171,10 @@ export default function ReportsPage() {
   const [customerStartDate, setCustomerStartDate] = useState('')
   const [customerEndDate, setCustomerEndDate] = useState('')
 
+  
   // ============================================
-  // AUTHENTICATION & INITIALIZATION
+  // FUNCTION DECLARATIONS (BEFORE useEffect)
   // ============================================
-
-  useEffect(() => {
-    initializePage()
-  }, [])
-
-  const initializePage = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) {
-      router.push('/login')
-      return
-    }
-    
-    await fetchCustomersList()
-    setDefaultDates()
-    setLoading(false)
-  }
 
   const fetchCustomersList = async () => {
     const { data } = await supabase
@@ -144,23 +187,35 @@ export default function ReportsPage() {
   }
 
   const setDefaultDates = () => {
-  const today = new Date().toISOString().split('T')[0]
-  setSelectedDate(today)
-  
-  // Date range report defaults
-  const lastMonth = new Date()
-  lastMonth.setDate(lastMonth.getDate() - 30)
-  setStartDate(lastMonth.toISOString().split('T')[0])
-  setEndDate(today)
-  
-  // Customer report defaults
-  setCustomerStartDate(lastMonth.toISOString().split('T')[0])
-  setCustomerEndDate(today)
-}
+    const today = new Date().toISOString().split('T')[0]
+    setSelectedDate(today)
+    
+    const lastMonth = new Date()
+    lastMonth.setDate(lastMonth.getDate() - 30)
+    setStartDate(lastMonth.toISOString().split('T')[0])
+    setEndDate(today)
+    
+    setCustomerStartDate(lastMonth.toISOString().split('T')[0])
+    setCustomerEndDate(today)
+  }
 
-  // ============================================
-  // REPORT GENERATION FUNCTIONS
-  // ============================================
+  useEffect(() => {
+  const init = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+
+    if (!session) {
+      router.push('/login')
+      return
+    }
+
+    await fetchCustomersList()
+    setDefaultDates()
+
+    setLoading(false)
+  }
+
+  void init()
+}, [router])
 
   /** Generates daily report for selected date */
   const generateDailyReport = async () => {
@@ -192,7 +247,7 @@ export default function ReportsPage() {
       }
 
       if (data && data.length > 0) {
-        const formattedEntries = data.map((entry: any) => formatEntry(entry))
+        const formattedEntries = data.map((entry: RawEntry) => formatEntry(entry))
         setDailyEntries(formattedEntries)
         setDailySummary(calculateSummary(formattedEntries, selectedDate))
       } else {
@@ -206,16 +261,14 @@ export default function ReportsPage() {
     }
   }
 
-/** Generates change history report with original vs corrected values */
-const generateChangeHistory = async () => {
+  /** Generates change history report with original vs corrected values */
+  const generateChangeHistory = useCallback(async () => {
   if (!startDate || !endDate) return
-  
+
   setLoading(true)
+
   try {
-    console.log('Change History Query - Date Range:', startDate, 'to', endDate)
-    
-    // First get all corrections for the date range
-    const { data: corrections, error } = await supabase
+    const { data: correctionsData, error } = await supabase
       .from('entries')
       .select(`
         id,
@@ -241,17 +294,15 @@ const generateChangeHistory = async () => {
       return
     }
 
-    if (!corrections || corrections.length === 0) {
+    if (!correctionsData || correctionsData.length === 0) {
       setCorrections([])
       return
     }
 
-    // Get all original entries that were corrected
-    const originalIds = corrections
-      .filter(c => c.previous_version_id)
-      .map(c => c.previous_version_id)
-    
-    // Fetch the original entries
+    const originalIds = correctionsData
+      .filter((c: CorrectionRawData) => c.previous_version_id)
+      .map((c: CorrectionRawData) => c.previous_version_id)
+
     const { data: originals } = await supabase
       .from('entries')
       .select(`
@@ -263,8 +314,8 @@ const generateChangeHistory = async () => {
       `)
       .in('id', originalIds)
 
-    // Create a map for quick lookup of original values
     const originalMap = new Map()
+
     originals?.forEach(original => {
       originalMap.set(original.id, {
         ironing: original.ironing || 0,
@@ -273,191 +324,183 @@ const generateChangeHistory = async () => {
       })
     })
 
-    // Format corrections with original values and user info
-    const formattedCorrections: CorrectionEntry[] = corrections.map((item: any) => {
-      const original = originalMap.get(item.previous_version_id) || {
-        ironing: 0,
-        saree_ironing: 0,
-        dry_cleaning: 0
-      }
-      
-      // Get the user who made the correction
-      const correctedBy = item.user_profiles?.full_name || 
-                         (item.user_profiles?.[0]?.full_name) || 
-                         'Unknown User'
-      
-      return {
-        id: item.id,
-        entry_date: item.entry_date,
-        // Original values
-        original_ironing: original.ironing,
-        original_saree_ironing: original.saree_ironing,
-        original_dry_cleaning: original.dry_cleaning,
-        // Corrected values
-        ironing: item.ironing || 0,
-        saree_ironing: item.saree_ironing || 0,
-        dry_cleaning: item.dry_cleaning || 0,
-        correction_reason: item.correction_reason,
-        created_at: item.created_at,
-        corrected_by: correctedBy,
-        customers: { name: item.customers?.name || 'Unknown' },
-        previous_version_id: item.previous_version_id
-      }
-    })
-    
+    const formattedCorrections: CorrectionEntry[] =
+      correctionsData.map((item: CorrectionRawData) => {
+        const original = originalMap.get(item.previous_version_id) || {
+          ironing: 0,
+          saree_ironing: 0,
+          dry_cleaning: 0
+        }
+
+        let correctedBy = 'Unknown User'
+
+        if (item.user_profiles?.length) {
+          correctedBy = item.user_profiles[0].full_name
+        }
+
+        return {
+          id: item.id,
+          entry_date: item.entry_date,
+          original_ironing: original.ironing,
+          original_saree_ironing: original.saree_ironing,
+          original_dry_cleaning: original.dry_cleaning,
+          ironing: item.ironing || 0,
+          saree_ironing: item.saree_ironing || 0,
+          dry_cleaning: item.dry_cleaning || 0,
+          correction_reason: item.correction_reason,
+          created_at: item.created_at,
+          corrected_by: correctedBy,
+          customers: {
+            name: item.customers?.[0]?.name || 'Unknown'
+          },
+          previous_version_id: item.previous_version_id
+        }
+      })
+
     setCorrections(formattedCorrections)
   } catch (err) {
     console.error('Error generating change history:', err)
-  } finally {
+    } finally {
     setLoading(false)
   }
-}
-  
+}, [startDate, endDate])
 
   /** Generates customer-wise report for selected customer with date range */
-const generateCustomerReport = async () => {
-  if (!selectedCustomer) return
-  
-  setLoading(true)
-  try {
-    let query = supabase
-      .from('entries')
-      .select(`
-        id,
-        entry_date,
-        ironing,
-        saree_ironing,
-        dry_cleaning,
-        is_correction,
-        customers (
-          name
-        )
-      `)
-      .eq('customer_id', selectedCustomer)
-      .eq('is_current_version', true)
-      .gte('entry_date', customerStartDate)
-      .lte('entry_date', customerEndDate)
-      .order('entry_date', { ascending: false })
+  const generateCustomerReport = useCallback(async () => {
+    if (!selectedCustomer) return
+    
+    setLoading(true)
+    try {
+      let query = supabase
+        .from('entries')
+        .select(`
+          id,
+          entry_date,
+          ironing,
+          saree_ironing,
+          dry_cleaning,
+          is_correction,
+          customers (
+            name
+          )
+        `)
+        .eq('customer_id', selectedCustomer)
+        .eq('is_current_version', true)
+        .gte('entry_date', customerStartDate)
+        .lte('entry_date', customerEndDate)
+        .order('entry_date', { ascending: false })
 
-    const { data, error } = await query
+      const { data, error } = await query
 
-    if (error) {
-      console.error('Customer report error:', error)
-      setCustomerEntries([])
-    } else if (data) {
-      const formattedEntries = data.map((entry: any) => {
-        let customerName = 'Unknown'
-        if (entry.customers) {
-          if (Array.isArray(entry.customers) && entry.customers.length > 0) {
-            customerName = entry.customers[0].name
-          } else if (entry.customers.name) {
-            customerName = entry.customers.name
+      if (error) {
+        console.error('Customer report error:', error)
+        setCustomerEntries([])
+      } else if (data) {
+        const formattedEntries = data.map((entry: CustomerReportRawEntry) => {
+          let customerName = 'Unknown'
+          if (entry.customers) {
+            if (Array.isArray(entry.customers) && entry.customers.length > 0) {
+              customerName = entry.customers[0].name
+            } else if (!Array.isArray(entry.customers) && entry.customers.name) {
+              customerName = entry.customers.name
+            }
           }
-        }
-        
-        return {
-          id: entry.id,
-          entry_date: entry.entry_date,
-          customer_id: selectedCustomer,
-          customer_name: customerName,
-          ironing: entry.ironing || 0,
-          saree_ironing: entry.saree_ironing || 0,
-          dry_cleaning: entry.dry_cleaning || 0,
-          total: (entry.ironing || 0) + (entry.saree_ironing || 0) + (entry.dry_cleaning || 0),
-          is_correction: entry.is_correction || false,
-          correction_reason: null
-        }
-      })
-      setCustomerEntries(formattedEntries)
+          
+          return {
+            id: entry.id,
+            entry_date: entry.entry_date,
+            customer_id: selectedCustomer,
+            customer_name: customerName,
+            ironing: entry.ironing || 0,
+            saree_ironing: entry.saree_ironing || 0,
+            dry_cleaning: entry.dry_cleaning || 0,
+            total: (entry.ironing || 0) + (entry.saree_ironing || 0) + (entry.dry_cleaning || 0),
+            is_correction: entry.is_correction || false,
+            correction_reason: null
+          }
+        })
+        setCustomerEntries(formattedEntries)
+      }
+    } catch (err) {
+      console.error('Error generating customer report:', err)
+    } finally {
+      setLoading(false)
     }
-  } catch (err) {
-    console.error('Error generating customer report:', err)
-  } finally {
-    setLoading(false)
-  }
-}
+  }, [selectedCustomer, customerStartDate, customerEndDate])
 
   /** Generates date range report between start and end dates with optional customer filter */
-const generateDateRangeReport = async () => {
-  if (!startDate || !endDate) return
-  
-  setLoading(true)
-  try {
-    console.log('Date Range Report - Parameters:', {
-      startDate,
-      endDate,
-      selectedCustomer: dateRangeCustomer
-    })
+  const generateDateRangeReport = async () => {
+    if (!startDate || !endDate) return
+    
+    setLoading(true)
+    try {
+      let query = supabase
+        .from('entries')
+        .select(`
+          id,
+          entry_date,
+          customer_id,
+          ironing,
+          saree_ironing,
+          dry_cleaning,
+          customers (
+            name
+          )
+        `)
+        .eq('is_current_version', true)
+        .gte('entry_date', startDate)
+        .lte('entry_date', endDate)
+        .order('entry_date', { ascending: true })
 
-    // Fix: Use proper join syntax - customers(name) not customers!inner (name)
-    let query = supabase
-      .from('entries')
-      .select(`
-        id,
-        entry_date,
-        customer_id,
-        ironing,
-        saree_ironing,
-        dry_cleaning,
-        customers (
-          name
-        )
-      `)
-      .eq('is_current_version', true)
-      .gte('entry_date', startDate)
-      .lte('entry_date', endDate)
-      .order('entry_date', { ascending: true })
+      if (dateRangeCustomer !== 'all') {
+        query = query.eq('customer_id', dateRangeCustomer)
+      }
 
-    // Add customer filter if not "all"
-    if (dateRangeCustomer !== 'all') {
-      query = query.eq('customer_id', dateRangeCustomer)
+      const { data, error } = await query
+
+      if (error) {
+        console.error('Date range error DETAILS:', error)
+        setRangeEntries([])
+        setRangeSummary(null)
+        return
+      }
+
+      if (data && data.length > 0) {
+        const formattedEntries = data.map((entry: DateRangeRawEntry) => {
+          let customerName = 'Unknown'
+          if (entry.customers) {
+            if (Array.isArray(entry.customers) && entry.customers.length > 0) {
+              customerName = entry.customers[0].name
+            } else if (!Array.isArray(entry.customers) && entry.customers.name) {
+              customerName = entry.customers.name
+            }
+          }
+          
+          return {
+            id: entry.id,
+            entry_date: entry.entry_date,
+            customer_id: entry.customer_id,
+            customer_name: customerName,
+            ironing: entry.ironing || 0,
+            saree_ironing: entry.saree_ironing || 0,
+            dry_cleaning: entry.dry_cleaning || 0,
+            total: (entry.ironing || 0) + (entry.saree_ironing || 0) + (entry.dry_cleaning || 0),
+            is_correction: false,
+            correction_reason: null
+          }
+        })
+        setRangeEntries(formattedEntries)
+        setRangeSummary(calculateSummary(formattedEntries, `${startDate} to ${endDate}`))
+      } else {
+        setRangeEntries([])
+        setRangeSummary(null)
+      }
+    } catch (err) {
+      console.error('Error generating date range report:', err)
+    } finally {
+      setLoading(false)
     }
-
-    const { data, error } = await query
-
-    if (error) {
-      console.error('Date range error DETAILS:', error)
-      setRangeEntries([])
-      setRangeSummary(null)
-      return
-    }
-
-    if (data && data.length > 0) {
-      const formattedEntries = data.map((entry: any) => {
-        // Handle the customers array from the join
-        const customerName = entry.customers?.[0]?.name || 
-                            (Array.isArray(entry.customers) ? entry.customers[0]?.name : entry.customers?.name) || 
-                            'Unknown'
-        
-        return {
-          id: entry.id,
-          entry_date: entry.entry_date,
-          customer_id: entry.customer_id,
-          customer_name: customerName,
-          ironing: entry.ironing || 0,
-          saree_ironing: entry.saree_ironing || 0,
-          dry_cleaning: entry.dry_cleaning || 0,
-          total: (entry.ironing || 0) + (entry.saree_ironing || 0) + (entry.dry_cleaning || 0),
-          is_correction: false,
-          correction_reason: null
-        }
-      })
-      setRangeEntries(formattedEntries)
-      setRangeSummary(calculateSummary(formattedEntries, `${startDate} to ${endDate}`))
-    } else {
-      setRangeEntries([])
-      setRangeSummary(null)
-    }
-  } catch (err) {
-    console.error('Error generating date range report:', err)
-  } finally {
-    setLoading(false)
   }
-}
-
-  // ============================================
-  // CSV EXPORT FUNCTIONS
-  // ============================================
 
   const exportDailyToCSV = () => {
     if (dailyEntries.length === 0) return
@@ -475,157 +518,201 @@ const generateDateRangeReport = async () => {
   }
 
   const exportHistoryToCSV = () => {
-  if (corrections.length === 0) return
-  
-  const headers = [
-    'Original Date', 
-    'Customer', 
-    'Original Ironing', 
-    'Original Saree', 
-    'Original Dry Clean',
-    'Corrected Ironing', 
-    'Corrected Saree', 
-    'Corrected Dry Clean',
-    'Ironing Change', 
-    'Saree Change', 
-    'Dry Clean Change',
-    'Reason', 
-    'Corrected By',
-    'Corrected At'
-  ]
-  
-  const data = corrections.map((correction: CorrectionEntry) => ({
-    'Original Date': new Date(correction.entry_date).toLocaleDateString(),
-    'Customer': correction.customers?.name || 'Unknown',
-    'Original Ironing': correction.original_ironing,
-    'Original Saree': correction.original_saree_ironing,
-    'Original Dry Clean': correction.original_dry_cleaning,
-    'Corrected Ironing': correction.ironing,
-    'Corrected Saree': correction.saree_ironing,
-    'Corrected Dry Clean': correction.dry_cleaning,
-    'Ironing Change': correction.ironing - correction.original_ironing,
-    'Saree Change': correction.saree_ironing - correction.original_saree_ironing,
-    'Dry Clean Change': correction.dry_cleaning - correction.original_dry_cleaning,
-    'Reason': correction.correction_reason || 'N/A',
-    'Corrected By': correction.corrected_by,
-    'Corrected At': new Date(correction.created_at).toLocaleString()
-  }))
-  
-  exportToCSV(data, `change_history_original_${startDate}_to_${endDate}`, headers)
-}
+    if (corrections.length === 0) return
+    
+    const headers = [
+      'Original Date', 
+      'Customer', 
+      'Original Ironing', 
+      'Original Saree', 
+      'Original Dry Clean',
+      'Corrected Ironing', 
+      'Corrected Saree', 
+      'Corrected Dry Clean',
+      'Ironing Change', 
+      'Saree Change', 
+      'Dry Clean Change',
+      'Reason', 
+      'Corrected By',
+      'Corrected At'
+    ]
+    
+    const data = corrections.map((correction: CorrectionEntry) => ({
+      'Original Date': new Date(correction.entry_date).toLocaleDateString(),
+      'Customer': correction.customers?.name || 'Unknown',
+      'Original Ironing': correction.original_ironing,
+      'Original Saree': correction.original_saree_ironing,
+      'Original Dry Clean': correction.original_dry_cleaning,
+      'Corrected Ironing': correction.ironing,
+      'Corrected Saree': correction.saree_ironing,
+      'Corrected Dry Clean': correction.dry_cleaning,
+      'Ironing Change': correction.ironing - correction.original_ironing,
+      'Saree Change': correction.saree_ironing - correction.original_saree_ironing,
+      'Dry Clean Change': correction.dry_cleaning - correction.original_dry_cleaning,
+      'Reason': correction.correction_reason || 'N/A',
+      'Corrected By': correction.corrected_by,
+      'Corrected At': new Date(correction.created_at).toLocaleString()
+    }))
+    
+    exportToCSV(data, `change_history_original_${startDate}_to_${endDate}`, headers)
+  }
 
   const exportCustomerToCSV = () => {
-  if (customerEntries.length === 0) return
-  
-  const headers = ['Date', 'Ironing', 'Saree Ironing', 'Dry Cleaning', 'Total Items']
-  const data = customerEntries.map(entry => ({
-    'Date': new Date(entry.entry_date).toLocaleDateString(),
-    'Ironing': entry.ironing,
-    'Saree Ironing': entry.saree_ironing,
-    'Dry Cleaning': entry.dry_cleaning,
-    'Total Items': entry.total
-  }))
-  
-  const customerName = customerEntries[0]?.customer_name?.replace(/\s/g, '_') || 'customer'
-  exportToCSV(data, `${customerName}_report_${customerStartDate}_to_${customerEndDate}`, headers)
-}
+    if (customerEntries.length === 0) return
+    
+    const headers = ['Date', 'Ironing', 'Saree Ironing', 'Dry Cleaning', 'Total Items']
+    const data = customerEntries.map(entry => ({
+      'Date': new Date(entry.entry_date).toLocaleDateString(),
+      'Ironing': entry.ironing,
+      'Saree Ironing': entry.saree_ironing,
+      'Dry Cleaning': entry.dry_cleaning,
+      'Total Items': entry.total
+    }))
+    
+    const customerName = customerEntries[0]?.customer_name?.replace(/\s/g, '_') || 'customer'
+    exportToCSV(data, `${customerName}_report_${customerStartDate}_to_${customerEndDate}`, headers)
+  }
 
   const exportRangeToCSV = () => {
-  if (rangeEntries.length === 0) return
-  
-  const headers = ['Date', 'Customer', 'Ironing', 'Saree Ironing', 'Dry Cleaning', 'Total Items']
-  const data = rangeEntries.map(entry => ({
-    'Date': new Date(entry.entry_date).toLocaleDateString(),
-    'Customer': entry.customer_name,
-    'Ironing': entry.ironing,
-    'Saree Ironing': entry.saree_ironing,
-    'Dry Cleaning': entry.dry_cleaning,
-    'Total Items': entry.total
-  }))
-  
-  const customerSuffix = dateRangeCustomer !== 'all' 
-    ? `_${rangeEntries[0]?.customer_name?.replace(/\s/g, '_') || 'customer'}` 
-    : ''
-  
-  exportToCSV(data, `date_range_report_${startDate}_to_${endDate}${customerSuffix}`, headers)
-}
-
-  // ============================================
-  // ACTIONS
-  // ============================================
+    if (rangeEntries.length === 0) return
+    
+    const headers = ['Date', 'Customer', 'Ironing', 'Saree Ironing', 'Dry Cleaning', 'Total Items']
+    const data = rangeEntries.map(entry => ({
+      'Date': new Date(entry.entry_date).toLocaleDateString(),
+      'Customer': entry.customer_name,
+      'Ironing': entry.ironing,
+      'Saree Ironing': entry.saree_ironing,
+      'Dry Cleaning': entry.dry_cleaning,
+      'Total Items': entry.total
+    }))
+    
+    const customerSuffix = dateRangeCustomer !== 'all' 
+      ? `_${rangeEntries[0]?.customer_name?.replace(/\s/g, '_') || 'customer'}` 
+      : ''
+    
+    exportToCSV(data, `date_range_report_${startDate}_to_${endDate}${customerSuffix}`, headers)
+  }
 
   const handlePrint = () => {
-  let title = ''
-  let subtitle = ''
-  let dateRange = ''
-  let customerName = ''
-  let additionalInfo: Array<{ label: string; value: string | number }> = []
+    let title = ''
+    let subtitle = ''
+    let dateRange = ''
+    let customerName = ''
+    let additionalInfo: Array<{ label: string; value: string | number }> = []
 
-  if (activeTab === 'daily' && dailySummary) {
-    title = 'Daily Summary Report'
-    subtitle = new Date(selectedDate).toLocaleDateString()
-    additionalInfo = [
-      { label: 'Total Entries', value: dailySummary.total_entries },
-      { label: 'Total Items', value: dailySummary.grand_total },
-      { label: 'Ironing', value: dailySummary.total_ironing },
-      { label: 'Saree Ironing', value: dailySummary.total_saree_ironing },
-      { label: 'Dry Cleaning', value: dailySummary.total_dry_cleaning }
-    ]
-  } else if (activeTab === 'history' && corrections.length > 0) {
-    title = 'Change History Report'
-    dateRange = `${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`
-    additionalInfo = [
-      { label: 'Total Corrections', value: corrections.length }
-    ]
-  } else if (activeTab === 'customer' && customerEntries.length > 0) {
-    const customer = customers.find(c => c.id === selectedCustomer)
-    title = 'Customer Report'
-    subtitle = customer?.name || ''
-    dateRange = `${new Date(customerStartDate).toLocaleDateString()} - ${new Date(customerEndDate).toLocaleDateString()}`
-    const totalItems = customerEntries.reduce((sum, e) => sum + e.total, 0)
-    additionalInfo = [
-      { label: 'Total Visits', value: customerEntries.length },
-      { label: 'Total Items', value: totalItems },
-      { label: 'Ironing', value: customerEntries.reduce((sum, e) => sum + e.ironing, 0) },
-      { label: 'Saree', value: customerEntries.reduce((sum, e) => sum + e.saree_ironing, 0) },
-      { label: 'Dry Clean', value: customerEntries.reduce((sum, e) => sum + e.dry_cleaning, 0) }
-    ]
-  } else if (activeTab === 'daterange' && rangeSummary) {
-    title = 'Date Range Report'
-    dateRange = `${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`
-    if (dateRangeCustomer !== 'all') {
-      const customer = customers.find(c => c.id === dateRangeCustomer)
-      customerName = customer?.name || ''
+    if (activeTab === 'daily' && dailySummary) {
+      title = 'Daily Summary Report'
+      subtitle = new Date(selectedDate).toLocaleDateString()
+      additionalInfo = [
+        { label: 'Total Entries', value: dailySummary.total_entries },
+        { label: 'Total Items', value: dailySummary.grand_total },
+        { label: 'Ironing', value: dailySummary.total_ironing },
+        { label: 'Saree Ironing', value: dailySummary.total_saree_ironing },
+        { label: 'Dry Cleaning', value: dailySummary.total_dry_cleaning }
+      ]
+    } else if (activeTab === 'history' && corrections.length > 0) {
+      title = 'Change History Report'
+      dateRange = `${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`
+      additionalInfo = [
+        { label: 'Total Corrections', value: corrections.length }
+      ]
+    } else if (activeTab === 'customer' && customerEntries.length > 0) {
+      const customer = customers.find(c => c.id === selectedCustomer)
+      title = 'Customer Report'
+      subtitle = customer?.name || ''
+      dateRange = `${new Date(customerStartDate).toLocaleDateString()} - ${new Date(customerEndDate).toLocaleDateString()}`
+      const totalItems = customerEntries.reduce((sum, e) => sum + e.total, 0)
+      additionalInfo = [
+        { label: 'Total Visits', value: customerEntries.length },
+        { label: 'Total Items', value: totalItems },
+        { label: 'Ironing', value: customerEntries.reduce((sum, e) => sum + e.ironing, 0) },
+        { label: 'Saree', value: customerEntries.reduce((sum, e) => sum + e.saree_ironing, 0) },
+        { label: 'Dry Clean', value: customerEntries.reduce((sum, e) => sum + e.dry_cleaning, 0) }
+      ]
+    } else if (activeTab === 'daterange' && rangeSummary) {
+      title = 'Date Range Report'
+      dateRange = `${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`
+      if (dateRangeCustomer !== 'all') {
+        const customer = customers.find(c => c.id === dateRangeCustomer)
+        customerName = customer?.name || ''
+      }
+      additionalInfo = [
+        { label: 'Total Entries', value: rangeSummary.total_entries },
+        { label: 'Total Items', value: rangeSummary.grand_total },
+        { label: 'Ironing', value: rangeSummary.total_ironing },
+        { label: 'Saree', value: rangeSummary.total_saree_ironing },
+        { label: 'Dry Clean', value: rangeSummary.total_dry_cleaning }
+      ]
     }
-    additionalInfo = [
-      { label: 'Total Entries', value: rangeSummary.total_entries },
-      { label: 'Total Items', value: rangeSummary.grand_total },
-      { label: 'Ironing', value: rangeSummary.total_ironing },
-      { label: 'Saree', value: rangeSummary.total_saree_ironing },
-      { label: 'Dry Clean', value: rangeSummary.total_dry_cleaning }
-    ]
+
+    printReport({
+      title,
+      subtitle,
+      dateRange,
+      customerName,
+      companyName: 'Nandlal Laundry',
+      additionalInfo
+    })
   }
 
-  printReport({
-    title,
-    subtitle,
-    dateRange,
-    customerName,
-    companyName: 'Nandlal Laundry',
-    additionalInfo
-  })
+  const handleTabChange = async (
+  tab: 'daily' | 'history' | 'customer' | 'daterange'
+) => {
+  setActiveTab(tab)
+
+  if (tab !== 'daterange') {
+    setDateRangeCustomer('all')
+  }
+
+  if (tab === 'history' && startDate && endDate) {
+    await generateChangeHistory()
+  }
 }
 
-  const handleTabChange = (tab: 'daily' | 'history' | 'customer' | 'daterange') => {
-    setActiveTab(tab)
-    // Auto-load change history when switching to that tab
-    // if (tab === 'history') {
-      // generateChangeHistory()
-      if (tab !== 'daterange') {
-    setDateRangeCustomer('all')
-      }
-  }
+  // ============================================
+  // EFFECTS (after all functions are declared)
+  // ============================================
 
+  // State to trigger history fetch without calling setState in effect
+//   useEffect(() => {
+//   if (activeTab === 'history' && startDate && endDate) {
+//     void generateChangeHistory()
+//   }
+// }, [activeTab, startDate, endDate, generateChangeHistory])
+
+  // Initial page load - runs once
+  useEffect(() => {
+    const initializePage = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        router.push('/login')
+        return
+      }
+      
+      const { data } = await supabase
+        .from('customers')
+        .select('id, name')
+        .eq('is_active', true)
+        .order('name')
+      
+      if (data) setCustomers(data)
+      
+      const today = new Date().toISOString().split('T')[0]
+      setSelectedDate(today)
+      
+      const lastMonth = new Date()
+      lastMonth.setDate(lastMonth.getDate() - 30)
+      setStartDate(lastMonth.toISOString().split('T')[0])
+      setEndDate(today)
+      setCustomerStartDate(lastMonth.toISOString().split('T')[0])
+      setCustomerEndDate(today)
+      
+      setLoading(false)
+    }
+    
+    initializePage()
+  }, [router])
+  
   // ============================================
   // RENDER
   // ============================================

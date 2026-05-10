@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 
 interface Customer {
@@ -23,33 +23,7 @@ export default function CustomerAutocomplete({ value, onChange, disabled = false
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    fetchCustomers()
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
-  useEffect(() => {
-    if (search) {
-      const filtered = customers.filter(customer =>
-        customer.name.toLowerCase().includes(search.toLowerCase())
-      )
-      setFilteredCustomers(filtered)
-      setShowDropdown(true)
-    } else {
-      setFilteredCustomers([])
-      setShowDropdown(false)
-    }
-  }, [search, customers])
-
-  // Sync with parent value
-  useEffect(() => {
-    if (value && !selectedCustomer) {
-      setSearch(value)
-    }
-  }, [value, selectedCustomer])
-
-  const fetchCustomers = async () => {
+  const fetchCustomers = useCallback(async () => {
     setLoading(true)
     const { data, error } = await supabase
       .from('customers')
@@ -61,13 +35,44 @@ export default function CustomerAutocomplete({ value, onChange, disabled = false
       setCustomers(data)
     }
     setLoading(false)
-  }
+  }, [])
 
-  const handleClickOutside = (event: MouseEvent) => {
+  const handleClickOutside = useCallback((event: MouseEvent) => {
     if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
       setShowDropdown(false)
     }
-  }
+  }, [])
+
+  // Initial load - fetch customers
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchCustomers()
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [fetchCustomers, handleClickOutside])
+
+  // Filter customers based on search input
+  useEffect(() => {
+    if (search) {
+      const filtered = customers.filter(customer =>
+        customer.name.toLowerCase().includes(search.toLowerCase())
+      )
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFilteredCustomers(filtered)
+      setShowDropdown(true)
+    } else {
+      setFilteredCustomers([])
+      setShowDropdown(false)
+    }
+  }, [search, customers])
+
+  // Sync with parent value
+  useEffect(() => {
+    if (value && !selectedCustomer) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSearch(value)
+    }
+  }, [value, selectedCustomer])
 
   const handleSelect = (customer: Customer) => {
     setSelectedCustomer(customer)

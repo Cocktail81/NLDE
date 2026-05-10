@@ -4,7 +4,7 @@ import { useState, useEffect, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import CustomerAutocomplete from '@/components/CustomerAutocomplete'
-import Navigation from '@/components/Navigation'
+import PageLayout from '@/components/layout/PageLayout'
 
 interface Customer {
   id: string
@@ -16,10 +16,9 @@ export default function NewEntryPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const [userRole, setUserRole] = useState<'admin' | 'operator'>('operator')
   
   // Form state
-  const [date, setDate] = useState('')
+  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0])
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [ironing, setIroning] = useState('0')
   const [sareeIroning, setSareeIroning] = useState('0')
@@ -31,53 +30,42 @@ export default function NewEntryPage() {
   const [addingCustomer, setAddingCustomer] = useState(false)
 
   useEffect(() => {
-    checkAuth()
-    // Set today's date as default
-    const today = new Date().toISOString().split('T')[0]
-    setDate(today)
-  }, [])
-
   const checkAuth = async () => {
-    const { data: { user }, error } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession()
     
-    if (error || !user) {
+    if (!session) {
       router.push('/login')
       return
     }
-
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-    
-    setUserRole(profile?.role || 'operator')
   }
+
+  checkAuth()
+}, [router])
 
   const handleAddCustomer = async (e: FormEvent) => {
     e.preventDefault()
     if (!newCustomerName.trim()) return
 
     setAddingCustomer(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession()
     
-    const { data, error } = await supabase
+    const { data, error: insertError } = await supabase
       .from('customers')
       .insert([
         {
           name: newCustomerName.trim(),
-          created_by: user?.id
+          created_by: session?.user?.id
         }
       ])
       .select()
       .single()
 
-    if (!error && data) {
+    if (!insertError && data) {
       setSelectedCustomer({ id: data.id, name: data.name })
       setNewCustomerName('')
       setShowAddCustomerModal(false)
     } else {
-      alert(`Error adding customer: ${error?.message || 'Unknown error'}`)
+      window.alert(`Error adding customer: ${insertError?.message || 'Unknown error'}`)
     }
     setAddingCustomer(false)
   }
@@ -85,7 +73,7 @@ export default function NewEntryPage() {
   const checkDuplicate = async (): Promise<boolean> => {
     if (!selectedCustomer || !date) return false
 
-    const { data, error } = await supabase
+    const { data, error: dupError } = await supabase
       .from('entries')
       .select('id')
       .eq('customer_id', selectedCustomer.id)
@@ -93,8 +81,8 @@ export default function NewEntryPage() {
       .eq('is_current_version', true)
       .limit(1)
 
-    if (error) {
-      console.error('Error checking duplicate:', error)
+    if (dupError) {
+      console.error('Error checking duplicate:', dupError)
       return false
     }
 
@@ -120,7 +108,7 @@ export default function NewEntryPage() {
     // Check for duplicate
     const hasDuplicate = await checkDuplicate()
     if (hasDuplicate) {
-      const proceed = confirm(
+      const proceed = window.confirm(
         `An entry already exists for ${selectedCustomer.name} on ${date}.\n\n` +
         `Do you want to create this as a correction? (Will create new version)`
       )
@@ -130,7 +118,7 @@ export default function NewEntryPage() {
     setLoading(true)
 
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { session } } = await supabase.auth.getSession()
       
       const entryData = {
         entry_date: date,
@@ -138,18 +126,18 @@ export default function NewEntryPage() {
         ironing: parseInt(ironing) || 0,
         saree_ironing: parseInt(sareeIroning) || 0,
         dry_cleaning: parseInt(dryCleaning) || 0,
-        created_by: user?.id,
+        created_by: session?.user?.id,
         is_current_version: true,
         is_correction: hasDuplicate,
         correction_reason: hasDuplicate ? 'New entry created for same date' : null
       }
 
-      const { error } = await supabase
+      const { error: submitError } = await supabase
         .from('entries')
         .insert([entryData])
 
-      if (error) {
-        throw error
+      if (submitError) {
+        throw submitError
       }
 
       // Reset all form fields
@@ -167,8 +155,9 @@ export default function NewEntryPage() {
         setSuccess(false)
       }, 3000)
 
-    } catch (err: any) {
-      setError(err.message || 'Failed to save entry')
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save entry'
+      setError(errorMessage)
       // Auto-hide error after 5 seconds
       setTimeout(() => {
         setError(null)
@@ -186,11 +175,12 @@ export default function NewEntryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+    <PageLayout 
+      title="New Entry" 
+      showBackButton={true} 
+      customBackPath="/entries"
+    >
       <div className="max-w-4xl mx-auto">
-        {/* Navigation */}
-        <Navigation showBack backUrl="/entries" title="New Entry" />
-        
         {/* Success Message */}
         {success && (
           <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl">
@@ -234,7 +224,7 @@ export default function NewEntryPage() {
                   className="w-full sm:w-64 px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-gray-800"
                 />
                 <p className="text-sm text-gray-500 mt-2">
-                  Default: Today's date. Can select any past or future date.
+                  Default: Today&apos;s date. Can select any past or future date.
                 </p>
               </div>
 
@@ -412,7 +402,7 @@ export default function NewEntryPage() {
           <div className="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
             <p className="text-sm text-yellow-800">
               <span className="font-semibold">Note:</span> If an entry already exists for the same customer and date, 
-              you'll be asked if you want to create a correction (new version).
+              you&apos;ll be asked if you want to create a correction (new version).
             </p>
           </div>
         </div>
@@ -462,6 +452,6 @@ export default function NewEntryPage() {
           </div>
         </div>
       )}
-    </div>
+    </PageLayout>
   )
 }

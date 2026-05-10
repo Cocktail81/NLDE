@@ -4,7 +4,11 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import PageLayout from '@/components/layout/PageLayout'
-import Navigation from '@/components/Navigation'
+
+interface UserProfileData {
+  role: string
+  full_name: string | null
+}
 
 interface RecentEntry {
   id: string
@@ -17,21 +21,9 @@ interface RecentEntry {
   is_correction: boolean
 }
 
-interface PageLayoutProps {
-  children: React.ReactNode
-  title?: string
-  showBackButton?: boolean
-  showHomeButton?: boolean
-  backUrl?: string
-}
-
-
-
-
 export default function DashboardPage() {
   const router = useRouter()
-  const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<any>(null)
+  const [profile, setProfile] = useState<UserProfileData | null>(null)
   const [stats, setStats] = useState({
     todayEntries: 0,
     totalCustomers: 0,
@@ -40,88 +32,99 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        router.push('/login')
+        return
+      }
+      
+      const { data: profileData } = await supabase
+        .from('user_profiles')
+        .select('role, full_name')
+        .eq('id', session.user.id)
+        .single()
+      
+      setProfile(profileData)
+    }
+
+    const fetchStats = async () => {
+      const today = new Date().toISOString().split('T')[0]
+      
+      const { count: todayEntries } = await supabase
+        .from('entries')
+        .select('*', { count: 'exact', head: true })
+        .eq('entry_date', today)
+        .eq('is_current_version', true)
+
+      const { count: totalCustomers } = await supabase
+        .from('customers')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_active', true)
+
+      setStats({
+        todayEntries: todayEntries || 0,
+        totalCustomers: totalCustomers || 0,
+      })
+    }
+
+        const fetchRecentEntries = async () => {
+      const { data, error } = await supabase
+        .from('entries')
+        .select(`
+          id,
+          entry_date,
+          customer_id,
+          ironing,
+          saree_ironing,
+          dry_cleaning,
+          is_correction,
+          customers (name)
+        `)
+        .eq('is_current_version', true)
+        .order('entry_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(10)
+
+      if (!error && data) {
+        const formattedEntries: RecentEntry[] = data.map((entry: {
+          id: string
+          entry_date: string
+          ironing: number
+          saree_ironing: number
+          dry_cleaning: number
+          is_correction: boolean
+          customers: { name: string } | { name: string }[] | null
+        }) => {
+          let customerName = 'Unknown'
+          if (entry.customers) {
+            if (Array.isArray(entry.customers) && entry.customers.length > 0) {
+              customerName = entry.customers[0].name
+            } else if (!Array.isArray(entry.customers) && entry.customers.name) {
+              customerName = entry.customers.name
+            }
+          }
+          
+          return {
+            id: entry.id,
+            entry_date: entry.entry_date,
+            customer_name: customerName,
+            ironing: entry.ironing || 0,
+            saree_ironing: entry.saree_ironing || 0,
+            dry_cleaning: entry.dry_cleaning || 0,
+            total: (entry.ironing || 0) + (entry.saree_ironing || 0) + (entry.dry_cleaning || 0),
+            is_correction: entry.is_correction || false
+          }
+        })
+        setRecentEntries(formattedEntries)
+      }
+      setLoading(false)
+    }
     checkAuth()
     fetchStats()
     fetchRecentEntries()
-  }, [])
-
-  const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    
-    if (!session) {
-      router.push('/login')
-      return
-    }
-    
-    setUser(session.user)
-    
-    const { data: profileData } = await supabase
-      .from('user_profiles')
-      .select('role, full_name')
-      .eq('id', session.user.id)
-      .single()
-    
-    setProfile(profileData)
-  }
-
-  const fetchStats = async () => {
-    const today = new Date().toISOString().split('T')[0]
-    
-    const { count: todayEntries } = await supabase
-      .from('entries')
-      .select('*', { count: 'exact', head: true })
-      .eq('entry_date', today)
-      .eq('is_current_version', true)
-
-    const { count: totalCustomers } = await supabase
-      .from('customers')
-      .select('*', { count: 'exact', head: true })
-      .eq('is_active', true)
-
-    setStats({
-      todayEntries: todayEntries || 0,
-      totalCustomers: totalCustomers || 0,
-    })
-  }
-
-  const fetchRecentEntries = async () => {
-    const { data, error } = await supabase
-      .from('entries')
-      .select(`
-        id,
-        entry_date,
-        customer_id,
-        ironing,
-        saree_ironing,
-        dry_cleaning,
-        is_correction,
-        customers (name)
-      `)
-      .eq('is_current_version', true)
-      .order('entry_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(10)
-
-    if (!error && data) {
-      const formattedEntries: RecentEntry[] = data.map((entry: any) => ({
-        id: entry.id,
-        entry_date: entry.entry_date,
-        customer_name: entry.customers?.name || 'Unknown',
-        ironing: entry.ironing || 0,
-        saree_ironing: entry.saree_ironing || 0,
-        dry_cleaning: entry.dry_cleaning || 0,
-        total: (entry.ironing || 0) + (entry.saree_ironing || 0) + (entry.dry_cleaning || 0),
-        is_correction: entry.is_correction || false
-      }))
-      setRecentEntries(formattedEntries)
-    }
-    setLoading(false)
-  }
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
+  }, [router])
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-IN', {
@@ -146,19 +149,11 @@ export default function DashboardPage() {
 
   return (
     <PageLayout title="Dashboard" showBackButton={false} showHomeButton={false}>
-      {/* Welcome Section */}
-      <div className="mb-8">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
-        <p className="text-gray-600">
-          Welcome back, <span className="font-semibold text-gray-800">{profile?.full_name || user?.email}</span>
-        </p>
-      </div>
-
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-800">Today's Entries</h3>
+            <h3 className="text-lg font-semibold text-gray-800">Today&apos;s Entries</h3>
             <div className="bg-blue-100 p-3 rounded-lg">
               <span className="text-2xl text-blue-600">📊</span>
             </div>

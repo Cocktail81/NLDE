@@ -2,12 +2,10 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-// import { supabase } from '@/lib/supabase'
 import { supabase } from '@/lib/supabase'
-import Navigation from '@/components/Navigation'
-
+import PageLayout from '@/components/layout/PageLayout'
 
 interface Customer {
   id: string
@@ -26,74 +24,89 @@ export default function CustomersPage() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [newCustomerName, setNewCustomerName] = useState('')
   const [addingCustomer, setAddingCustomer] = useState(false)
-
-  // useEffect(() => {
-  //   checkAuth()
-  //   fetchCustomers()
-  // }, [])
-
+   const [previousSearchTerm, setPreviousSearchTerm] = useState('')
   
-  // const checkAuth = async () => {
-  //   const { data: { session } } = await supabase.auth.getSession()
-    
-  //   if (!session) {
-  //     router.push('/login')
-  //     return
-  //   }
-
-  //   // Get user role
-  //   const { data: profile } = await supabase
-  //     .from('user_profiles')
-  //     .select('role')
-  //     .eq('id', session.user.id)
-  //     .single()
-    
-  //   setUserRole(profile?.role || 'operator')
-  // }
-
-  const checkAuth = async () => {
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [totalCount, setTotalCount] = useState(0)
+  const PAGE_SIZE_OPTIONS = [20, 50, 100]
+  
+  const checkAuth = useCallback(async () => {
   const { data: { session } } = await supabase.auth.getSession()
-  
-  if (!session) {
-    router.push('/login')
-    return null
-  }
+    
+    if (!session) {
+      router.push('/login')
+      return null
+    }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('role')
-    .eq('id', session.user.id)
-    .single()
-  
-  setUserRole(profile?.role || 'operator')
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', session.user.id)
+      .single()
+    
+    setUserRole(profile?.role || 'operator')
+    return session
+  }, [router])
 
-  return session
-}
-
-  const fetchCustomers = async () => {
+    // Fetch customers with current filters
+    const fetchCustomers = useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
+    
+    // Determine if we need to reset page due to search change
+    let effectivePage = currentPage
+    if (searchTerm !== previousSearchTerm) {
+      effectivePage = 1
+    }
+    
+    // Build count query with search filter
+    let countQuery = supabase
+      .from('customers')
+      .select('*', { count: 'exact', head: true })
+      .eq('is_active', true)
+
+    if (searchTerm) {
+      countQuery = countQuery.ilike('name', `%${searchTerm}%`)
+    }
+
+    const { count, error: countError } = await countQuery
+
+    if (countError) {
+      console.error('Error fetching count:', countError)
+    } else {
+      setTotalCount(count || 0)
+    }
+
+    // Build data query with search filter
+    let dataQuery = supabase
       .from('customers')
       .select('*')
       .eq('is_active', true)
       .order('name', { ascending: true })
+      .range((effectivePage - 1) * pageSize, effectivePage * pageSize - 1)
+
+    if (searchTerm) {
+      dataQuery = dataQuery.ilike('name', `%${searchTerm}%`)
+    }
+
+    const { data, error } = await dataQuery
 
     if (!error && data) {
       setCustomers(data)
     }
-    setLoading(false)
-  }
-
-  
-  useEffect(() => {
-  const init = async () => {
-    const session = await checkAuth()
-    if (session) {
-      await fetchCustomers()
+    
+    // Update previous search term after fetch
+    if (searchTerm !== previousSearchTerm) {
+      setPreviousSearchTerm(searchTerm)
+      if (effectivePage !== currentPage) {
+        setCurrentPage(1)
+      }
     }
-  }
-  init()
-}, [])
+    
+    setLoading(false)
+  }, [currentPage, pageSize, searchTerm, previousSearchTerm])
 
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -114,7 +127,8 @@ export default function CustomersPage() {
     if (!error) {
       setNewCustomerName('')
       setShowAddModal(false)
-      fetchCustomers() // Refresh list
+      setCurrentPage(1) // Reset to first page after adding
+      await fetchCustomers()
     } else {
       alert(`Error adding customer: ${error.message}`)
     }
@@ -137,31 +151,35 @@ export default function CustomersPage() {
       .eq('id', customerId)
 
     if (!error) {
-      fetchCustomers() // Refresh list
+      await fetchCustomers()
     } else {
       alert(`Error deleting customer: ${error.message}`)
     }
-  }
+  } 
 
-  // Filter customers based on search
-  const filteredCustomers = customers.filter(customer =>
-    customer.name.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+    // Initial load and filter changes
+  useEffect(() => {
+    const loadCustomers = async () => {
+      const session = await checkAuth()
+      if (session) {
+        await fetchCustomers()
+      }
+    }
+    loadCustomers()
+  }, [checkAuth, fetchCustomers])
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+    <PageLayout title="Customers" showBackButton={true} customBackPath="/dashboard">
       <div className="max-w-7xl mx-auto">
-        <Navigation showBack backUrl="/dashboard" title="Customers" />
-        {/* Header */}        
+        {/* Header */}
         <div className="mb-8">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Customers</h1>
-              <p className="text-gray-600 mt-1">Manage your customer list</p>
+              <p className="text-gray-600 text-sm mt-1">Manage your customer list</p>
             </div>
             <button
               onClick={() => setShowAddModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
             >
               + Add New Customer
             </button>
@@ -175,7 +193,8 @@ export default function CustomersPage() {
               <div>
                 <h3 className="text-lg font-semibold text-gray-800">Customer Overview</h3>
                 <p className="text-gray-600 text-sm mt-1">
-                  Total active customers: <span className="font-bold text-gray-900">{customers.length}</span>
+                  Total active customers: <span className="font-bold text-gray-900">{totalCount}</span>
+                  {searchTerm && ` matching "${searchTerm}"`}
                 </p>
               </div>
               <div className="w-full sm:w-64">
@@ -192,13 +211,13 @@ export default function CustomersPage() {
         </div>
 
         {/* Customers List */}
-        <div className="bg-white rounded-xl border overflow-hidden">
+        <div className="bg-white rounded-xl border overflow-hidden shadow-sm">
           {loading ? (
             <div className="p-12 text-center">
               <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mb-4"></div>
               <p className="text-gray-600">Loading customers...</p>
             </div>
-          ) : filteredCustomers.length === 0 ? (
+          ) : customers.length === 0 ? (
             <div className="p-12 text-center">
               <div className="text-5xl mb-4">👥</div>
               <p className="text-gray-700 font-medium">No customers found</p>
@@ -224,7 +243,7 @@ export default function CustomersPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {filteredCustomers.map((customer) => (
+                  {customers.map((customer) => (
                     <tr key={customer.id} className="hover:bg-gray-50">
                       <td className="py-4 px-4">
                         <div className="font-medium text-gray-900">{customer.name}</div>
@@ -244,7 +263,10 @@ export default function CustomersPage() {
                       <td className="py-4 px-4">
                         <div className="flex space-x-2">
                           <button
-                            onClick={() => router.push(`/entries?customer=${customer.id}`)}
+                            onClick={() => {
+                              // console.log('Navigating to entries for customer:', customer.id, customer.name)
+                              router.push(`/entries?customer=${customer.id}`)
+                            }}
                             className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
                           >
                             View Entries
@@ -267,20 +289,71 @@ export default function CustomersPage() {
           )}
         </div>
 
-        {/* Pagination/Info */}
-        <div className="mt-6 flex flex-col sm:flex-row justify-between items-center text-sm text-gray-600">
-          <div>
-            Showing {filteredCustomers.length} of {customers.length} customers
-            {searchTerm && ` matching "${searchTerm}"`}
+        {/* Pagination */}
+        {totalCount > 0 && (
+          <div className="mt-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div className="text-sm text-gray-600">
+              Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, totalCount)} of {totalCount} customers
+              {searchTerm && ` matching "${searchTerm}"`}
+            </div>
+            
+            <div className="flex items-center gap-4">
+              {/* Page Size Selector */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-600">Show:</label>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value))
+                    setCurrentPage(1)
+                  }}
+                  className="px-3 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 bg-white text-sm"
+                >
+                  {PAGE_SIZE_OPTIONS.map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Pagination Buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  « First
+                </button>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  ‹ Previous
+                </button>
+                
+                <span className="px-4 py-1 text-sm text-gray-700">
+                  Page {currentPage} of {Math.ceil(totalCount / pageSize) || 1}
+                </span>
+                
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(totalCount / pageSize)))}
+                  disabled={currentPage === Math.ceil(totalCount / pageSize) || totalCount === 0}
+                  className="px-3 py-1 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next ›
+                </button>
+                <button
+                  onClick={() => setCurrentPage(Math.ceil(totalCount / pageSize))}
+                  disabled={currentPage === Math.ceil(totalCount / pageSize) || totalCount === 0}
+                  className="px-3 py-1 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Last »
+                </button>
+              </div>
+            </div>
           </div>
-          <div className="mt-2 sm:mt-0">
-            {userRole === 'admin' && (
-              <span className="px-2 py-1 bg-gray-100 rounded text-xs">
-                Admin: Can delete customers
-              </span>
-            )}
-          </div>
-        </div>
+        )}
 
         {/* Add Customer Modal */}
         {showAddModal && (
@@ -327,6 +400,6 @@ export default function CustomersPage() {
           </div>
         )}
       </div>
-    </div>
+    </PageLayout>
   )
 }

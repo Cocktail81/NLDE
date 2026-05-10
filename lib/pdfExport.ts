@@ -1,13 +1,12 @@
 // lib/pdfExport.ts
 import jsPDF from 'jspdf'
-import html2canvas from 'html2canvas'
+import html2canvas, { Options as Html2CanvasOptions } from 'html2canvas'
 
 interface PdfOptions {
   filename?: string
   title?: string
   orientation?: 'portrait' | 'landscape'
   margin?: number
-  quality?: number
   pageTopMargin?: number  // Top margin for pages after first
 }
 
@@ -25,7 +24,6 @@ export async function generatePDF(
     filename = 'report.pdf',
     orientation = 'portrait',
     margin = 10,
-    quality = 0.7,
     pageTopMargin = 15  // Default 15mm top margin on subsequent pages
   } = options
 
@@ -178,7 +176,7 @@ export async function generatePDF(
       windowWidth: container.scrollWidth,
       windowHeight: container.scrollHeight,
       backgroundColor: '#ffffff'
-    } as any)
+    } as Html2CanvasOptions)
 
     // Create PDF
     const pdf = new jsPDF({
@@ -215,11 +213,8 @@ export async function generatePDF(
       
       // Calculate the portion to show
       const yOffset = position
-      const remainingHeight = imgHeight - yOffset
-      const heightToShow = Math.min(availableHeight, remainingHeight)
       
       // Add image with offset to show the correct portion
-      // The image is positioned so that the portion starting at yOffset is visible
       pdf.addImage(
         canvas, 
         'JPEG', 

@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import Navigation from '@/components/Navigation'
+import PageLayout from '@/components/layout/PageLayout'
+import { useUrlCustomerFilter } from '@/hooks/useUrlCustomerFilter'
 
 interface Entry {
   id: string
@@ -23,21 +24,19 @@ interface Customer {
   name: string
 }
 
+const PAGE_SIZE_OPTIONS = [20, 50, 100]
+
 // Loading fallback component
 function EntriesLoading() {
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <div className="h-8 w-48 bg-gray-200 rounded animate-pulse"></div>
-          <div className="h-4 w-64 bg-gray-200 rounded animate-pulse mt-2"></div>
-        </div>
-        <div className="bg-white rounded-xl border p-12 text-center">
+    <PageLayout title="All Entries" showBackButton={true} customBackPath="/dashboard">
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mb-4"></div>
           <p className="text-gray-600">Loading entries...</p>
         </div>
       </div>
-    </div>
+    </PageLayout>
   )
 }
 
@@ -45,9 +44,8 @@ function EntriesLoading() {
 function EntriesContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const customerIdParam = searchParams.get('customer')
-  
-  const [loading, setLoading] = useState(true)
+  const customerIdParam = searchParams.get('customer')  
+  const [loading] = useState(false)
   const [entries, setEntries] = useState<Entry[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [selectedCustomerId, setSelectedCustomerId] = useState('')
@@ -55,48 +53,28 @@ function EntriesContent() {
   const [endDate, setEndDate] = useState('')
   const [showCorrectionsOnly, setShowCorrectionsOnly] = useState(false)
   const [selectedCustomerName, setSelectedCustomerName] = useState('')
+  
 
-  // Initial load - check auth and fetch data
-  useEffect(() => {
-    checkAuth()
-    fetchCustomers()
-  }, [])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [totalCount, setTotalCount] = useState(0)
+  const [totalPages, setTotalPages] = useState(0)
 
-  // Fetch entries when filters change
-  useEffect(() => {
-    // Skip on initial mount, let fetchEntries be called after auth check
-    if (!loading) {
-      fetchEntries()
-    }
-  }, [selectedCustomerId, startDate, endDate, showCorrectionsOnly])
+  // ============================================
+  // FUNCTION DECLARATIONS (declared BEFORE useEffect)
+  // ============================================
 
-  // Handle customer filter from URL after customers are loaded
-  useEffect(() => {
-    if (customerIdParam && customers.length > 0 && !selectedCustomerId) {
-      const customerExists = customers.find(c => c.id === customerIdParam)
-      if (customerExists) {
-        setSelectedCustomerId(customerIdParam)
-        setSelectedCustomerName(customerExists.name)
-        // Force fetch after setting filter
-        setTimeout(() => fetchEntries(), 100)
-      }
-    }
-  }, [customerIdParam, customers])
-
-  const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
+  const checkAuth = useCallback(async () => {
+  const { data: { session } } = await supabase.auth.getSession()
     
     if (!session) {
       router.push('/login')
       return
-    }
+    }    
+  }, [router])
 
-    // After auth check, fetch entries
-    await fetchEntries()
-    setLoading(false)
-  }
 
-  const fetchCustomers = async () => {
+    const fetchCustomers = useCallback(async () => {
     const { data } = await supabase
       .from('customers')
       .select('id, name')
@@ -106,17 +84,57 @@ function EntriesContent() {
     if (data) {
       setCustomers(data)
     }
-  }
+  }, [])
 
-  const fetchEntries = async () => {
-    console.log('Fetching entries with filters:', {
-      selectedCustomerId,
-      startDate,
-      endDate,
-      showCorrectionsOnly
-    })
-    
-    let query = supabase
+  const [previousFilters, setPreviousFilters] = useState({ customerId: '', startDate: '', endDate: '', showCorrectionsOnly: false })
+
+    const fetchEntries = useCallback(async () => {
+
+    const filtersChanged = 
+      selectedCustomerId !== previousFilters.customerId ||
+      startDate !== previousFilters.startDate ||
+      endDate !== previousFilters.endDate ||
+      showCorrectionsOnly !== previousFilters.showCorrectionsOnly
+
+    let effectivePage = currentPage
+      if (filtersChanged) {
+        effectivePage = 1
+        setCurrentPage(1)
+        setPreviousFilters({ customerId: selectedCustomerId, startDate, endDate, showCorrectionsOnly })
+      }
+
+    // First, get total count for pagination
+    let countQuery = supabase
+      .from('entries')
+      .select('*', { count: 'exact', head: true })
+      .eq('is_current_version', true)
+
+    // Apply customer filter to count query
+    if (selectedCustomerId && selectedCustomerId !== '') {
+      countQuery = countQuery.eq('customer_id', selectedCustomerId)
+    }
+    if (startDate && endDate) {
+      countQuery = countQuery.gte('entry_date', startDate).lte('entry_date', endDate)
+    } else if (startDate) {
+      countQuery = countQuery.gte('entry_date', startDate)
+    } else if (endDate) {
+      countQuery = countQuery.lte('entry_date', endDate)
+    }
+    if (showCorrectionsOnly) {
+      countQuery = countQuery.eq('is_correction', true)
+    }
+
+    const { count, error: countError } = await countQuery
+
+    if (countError) {
+      console.error('Error fetching count:', countError)
+    } else {
+      setTotalCount(count || 0)
+      setTotalPages(Math.ceil((count || 0) / pageSize))
+    }
+
+    // Fetch paginated data
+    let dataQuery = supabase
       .from('entries')
       .select(`
         id,
@@ -131,50 +149,94 @@ function EntriesContent() {
         customers!entries_customer_id_fkey (name, is_active)
       `)
       .eq('is_current_version', true)
-      .order('entry_date', { ascending: false })
-      .order('created_at', { ascending: false })
+      .order('entry_date', { ascending: true })
+      .order('created_at', { ascending: true })
+      .range((effectivePage - 1) * pageSize, effectivePage * pageSize - 1)
 
-    // Apply customer filter
+    // Apply customer filter to data query
     if (selectedCustomerId && selectedCustomerId !== '') {
-      query = query.eq('customer_id', selectedCustomerId)
+      dataQuery = dataQuery.eq('customer_id', selectedCustomerId)
     }
-
-    // Apply date range filter
     if (startDate && endDate) {
-      query = query.gte('entry_date', startDate).lte('entry_date', endDate)
+      dataQuery = dataQuery.gte('entry_date', startDate).lte('entry_date', endDate)
     } else if (startDate) {
-      query = query.gte('entry_date', startDate)
+      dataQuery = dataQuery.gte('entry_date', startDate)
     } else if (endDate) {
-      query = query.lte('entry_date', endDate)
+      dataQuery = dataQuery.lte('entry_date', endDate)
     }
-
-    // Apply correction filter
     if (showCorrectionsOnly) {
-      query = query.eq('is_correction', true)
+      dataQuery = dataQuery.eq('is_correction', true)
     }
 
-    const { data, error } = await query
+    const { data, error } = await dataQuery
 
     if (error) {
       console.error('Error fetching entries:', error)
       setEntries([])
     } else if (data) {
-      console.log('Entries found:', data.length)
-      const formattedEntries: Entry[] = data.map((entry: any) => ({
-        id: entry.id,
-        entry_date: entry.entry_date,
-        customer_name: entry.customers?.name || 'Unknown',
-        ironing: entry.ironing || 0,
-        saree_ironing: entry.saree_ironing || 0,
-        dry_cleaning: entry.dry_cleaning || 0,
-        total: (entry.ironing || 0) + (entry.saree_ironing || 0) + (entry.dry_cleaning || 0),
-        is_correction: entry.is_correction || false,
-        correction_reason: entry.correction_reason,
-        created_at: entry.created_at
-      }))
+      const formattedEntries: Entry[] = data.map((entry: {
+        id: string
+        entry_date: string
+        ironing: number
+        saree_ironing: number
+        dry_cleaning: number
+        is_correction: boolean
+        correction_reason: string | null
+        created_at: string
+        customers: { name: string } | { name: string }[] | null
+      }) => {
+        let customerName = 'Unknown'
+        if (entry.customers) {
+          if (Array.isArray(entry.customers) && entry.customers.length > 0) {
+            customerName = entry.customers[0].name
+          } else if (!Array.isArray(entry.customers) && entry.customers.name) {
+            customerName = entry.customers.name
+          }
+        }
+        return {
+          id: entry.id,
+          entry_date: entry.entry_date,
+          customer_name: customerName,
+          ironing: entry.ironing || 0,
+          saree_ironing: entry.saree_ironing || 0,
+          dry_cleaning: entry.dry_cleaning || 0,
+          total: (entry.ironing || 0) + (entry.saree_ironing || 0) + (entry.dry_cleaning || 0),
+          is_correction: entry.is_correction || false,
+          correction_reason: entry.correction_reason,
+          created_at: entry.created_at
+        }
+      })
       setEntries(formattedEntries)
     }
-  }
+  }, [selectedCustomerId, startDate, endDate, showCorrectionsOnly, currentPage, pageSize, previousFilters])
+
+  // ============================================
+  // EFFECTS (after all functions are declared)
+  // ============================================
+
+    // Initial load - check auth and fetch data
+  useEffect(() => {
+    const init = async () => {
+      await checkAuth()
+      await fetchCustomers()
+    }
+    init()
+  }, [checkAuth, fetchCustomers])  // Now includes dependencies    
+
+    // Add a ref to track if this is the first render
+    const isFirstRender = useRef(true)
+
+    // Fetch entries when filters or pagination changes
+    useEffect(() => {
+      if (isFirstRender.current) {
+        isFirstRender.current = false
+        return
+      }
+      fetchEntries()
+}, [selectedCustomerId, startDate, endDate, showCorrectionsOnly, currentPage, pageSize, fetchEntries])
+
+  // Handle customer filter from URL after customers are loaded
+useUrlCustomerFilter(customerIdParam, customers, setSelectedCustomerId, setSelectedCustomerName)
 
   const exportToCSV = () => {
     if (entries.length === 0) return
@@ -242,16 +304,13 @@ function EntriesContent() {
   }), { ironing: 0, sareeIroning: 0, dryCleaning: 0, total: 0 })
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+    <PageLayout title="All Entries" showBackButton={true} customBackPath="/dashboard">
       <div className="max-w-7xl mx-auto">
-        {/* Navigation */}
-        <Navigation showBack backUrl="/dashboard" title="All Entries" />
-        
         {/* Header */}
         <div className="mb-8">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <p className="text-gray-600 mt-1">
+              <p className="text-gray-600 text-sm">
                 {selectedCustomerName 
                   ? `Showing ALL entries for ${selectedCustomerName} (no date restriction)`
                   : 'View and manage all laundry entries'
@@ -262,20 +321,20 @@ function EntriesContent() {
               {entries.length > 0 && (
                 <button
                   onClick={exportToCSV}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
                 >
                   📥 Export CSV
                 </button>
               )}
               <button
                 onClick={() => router.push('/entries/new')}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
               >
                 + New Entry
               </button>
               <button
                 onClick={() => router.push('/customers')}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors text-sm"
               >
                 Manage Customers
               </button>
@@ -435,12 +494,12 @@ function EntriesContent() {
                   <tr>
                     <th className="py-3 px-4 text-left font-semibold text-gray-900">Date</th>
                     <th className="py-3 px-4 text-left font-semibold text-gray-900">Customer</th>
-                    <th className="py-3 px-4 text-left font-semibold text-gray-900">Ironing</th>
-                    <th className="py-3 px-4 text-left font-semibold text-gray-900">Saree Ironing</th>
-                    <th className="py-3 px-4 text-left font-semibold text-gray-900">Dry Cleaning</th>
-                    <th className="py-3 px-4 text-left font-semibold text-gray-900">Total</th>
-                    <th className="py-3 px-4 text-left font-semibold text-gray-900">Type</th>
-                    <th className="py-3 px-4 text-left font-semibold text-gray-900">Actions</th>
+                    <th className="py-3 px-4 text-right font-semibold text-gray-900">Ironing</th>
+                    <th className="py-3 px-4 text-right font-semibold text-gray-900">Saree Ironing</th>
+                    <th className="py-3 px-4 text-right font-semibold text-gray-900">Dry Cleaning</th>
+                    <th className="py-3 px-4 text-right font-semibold text-gray-900">Total</th>
+                    <th className="py-3 px-4 text-center font-semibold text-gray-900">Type</th>
+                    <th className="py-3 px-4 text-center font-semibold text-gray-900">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -452,11 +511,11 @@ function EntriesContent() {
                       <td className="py-3 px-4 font-medium text-gray-900">
                         {entry.customer_name}
                       </td>
-                      <td className="py-3 px-4 text-gray-700">{entry.ironing}</td>
-                      <td className="py-3 px-4 text-gray-700">{entry.saree_ironing}</td>
-                      <td className="py-3 px-4 text-gray-700">{entry.dry_cleaning}</td>
-                      <td className="py-3 px-4 font-semibold text-gray-900">{entry.total}</td>
-                      <td className="py-3 px-4">
+                      <td className="py-3 px-4 text-right text-gray-700">{entry.ironing}</td>
+                      <td className="py-3 px-4 text-right text-gray-700">{entry.saree_ironing}</td>
+                      <td className="py-3 px-4 text-right text-gray-700">{entry.dry_cleaning}</td>
+                      <td className="py-3 px-4 text-right font-semibold text-gray-900">{entry.total}</td>
+                      <td className="py-3 px-4 text-center">
                         {entry.is_correction ? (
                           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                             Corrected
@@ -467,7 +526,7 @@ function EntriesContent() {
                           </span>
                         )}
                       </td>
-                      <td className="py-3 px-4">
+                      <td className="py-3 px-4 text-center">
                         <button
                           onClick={() => router.push(`/entries/${entry.id}/correct`)}
                           className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
@@ -482,10 +541,10 @@ function EntriesContent() {
                   <tr>
                     <td className="py-3 px-4 font-semibold text-gray-900">Totals</td>
                     <td className="py-3 px-4"></td>
-                    <td className="py-3 px-4 font-semibold text-blue-600">{totals.ironing}</td>
-                    <td className="py-3 px-4 font-semibold text-green-600">{totals.sareeIroning}</td>
-                    <td className="py-3 px-4 font-semibold text-purple-600">{totals.dryCleaning}</td>
-                    <td className="py-3 px-4 font-semibold text-gray-900">{totals.total}</td>
+                    <td className="py-3 px-4 text-right font-semibold text-blue-600">{totals.ironing}</td>
+                    <td className="py-3 px-4 text-right font-semibold text-green-600">{totals.sareeIroning}</td>
+                    <td className="py-3 px-4 text-right font-semibold text-purple-600">{totals.dryCleaning}</td>
+                    <td className="py-3 px-4 text-right font-semibold text-gray-900">{totals.total}</td>
                     <td className="py-3 px-4"></td>
                     <td className="py-3 px-4"></td>
                   </tr>
@@ -495,7 +554,71 @@ function EntriesContent() {
           )}
         </div>
       </div>
-    </div>
+        {/* Pagination */}
+        {totalCount > 0 && (
+          <div className="mt-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div className="text-sm text-gray-600">
+              Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, totalCount)} of {totalCount} entries
+            </div>
+            
+            <div className="flex items-center gap-4">
+              {/* Page Size Selector */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-600">Show:</label>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value))
+                    setCurrentPage(1) // Reset to first page when changing page size
+                  }}
+                  className="px-3 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 bg-white text-sm"
+                >
+                  {PAGE_SIZE_OPTIONS.map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Pagination Buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  « First
+                </button>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  ‹ Previous
+                </button>
+                
+                <span className="px-4 py-1 text-sm text-gray-700">
+                  Page {currentPage} of {totalPages || 1}
+                </span>
+                
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages || totalPages === 0}
+                  className="px-3 py-1 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next ›
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages || totalPages === 0}
+                  className="px-3 py-1 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Last »
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+    </PageLayout>
   )
 }
 
