@@ -107,3 +107,75 @@ A comprehensive data entry and management system for laundry businesses with ver
    ```bash
    git clone https://github.com/yourusername/nlde.git
    cd nlde
+
+
+
+🤝 Contributing
+Contributions are welcome! Please follow these steps:
+
+Fork the repository
+
+Create a feature branch (git checkout -b feature/AmazingFeature)
+
+Commit changes (git commit -m 'Add some AmazingFeature')
+
+Push to branch (git push origin feature/AmazingFeature)
+
+Open a Pull Request
+
+Development Guidelines
+Follow TypeScript best practices
+
+Use functional components with hooks
+
+Maintain responsive design
+
+Write meaningful commit messages
+
+Test changes thoroughly
+
+📄 License
+Distributed under the MIT License. See LICENSE file for more information.
+
+🙏 Acknowledgments
+Next.js - React framework
+
+Supabase - Backend and authentication
+
+Tailwind CSS - Styling
+
+Vercel - Hosting
+
+Lucide Icons - Icon library
+
+📧 Support
+For support, please contact:
+
+Email: support@nandlallaundry.com
+
+GitHub Issues: Create an issue
+
+🗺️ Roadmap
+User management page (admin only)
+
+Dashboard charts and analytics
+
+Bulk entry mode
+
+Email notifications for daily summaries
+
+Mobile app (React Native)
+
+Barcode scanning for customers
+
+Advanced reporting with charts
+
+API for third-party integrations
+
+⭐ Show Your Support
+If you found this project helpful, please give it a ⭐ on GitHub!
+
+Built with ❤️ for Nandlal Laundry
+
+Last Updated: May 2026
+Version: 2.0.0
