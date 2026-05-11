@@ -42,8 +42,8 @@ interface CorrectionRawData {
   created_at: string
   previous_version_id: string
   created_by: string
-  customers: { name: string }[]  // customers is always an array
-  user_profiles: { full_name: string }[] | null  // user_profiles is an array or null
+  customers: { name: string } | { name: string }[] | null  // Updated to handle both
+  user_profiles: { full_name: string } | { full_name: string }[] | null  // Updated to handle both
 }
 
 interface DateRangeRawEntry {
@@ -332,30 +332,42 @@ export default function ReportsPage() {
           dry_cleaning: 0
         }
 
-        let correctedBy = 'Unknown User'
+        // Extract customer name - handle multiple possible structures
+  let customerName = 'Unknown'
+  if (item.customers) {
+    if (Array.isArray(item.customers) && item.customers.length > 0) {
+      customerName = item.customers[0]?.name || 'Unknown'
+    } else if (!Array.isArray(item.customers) && item.customers.name) {
+      customerName = item.customers.name
+    }
+  }
 
-        if (item.user_profiles?.length) {
-          correctedBy = item.user_profiles[0].full_name
+      // Extract corrected by - handle multiple possible structures
+      let correctedBy = 'Unknown User'
+      if (item.user_profiles) {
+        if (Array.isArray(item.user_profiles) && item.user_profiles.length > 0) {
+          correctedBy = item.user_profiles[0]?.full_name || 'Unknown User'
+        } else if (!Array.isArray(item.user_profiles) && item.user_profiles.full_name) {
+          correctedBy = item.user_profiles.full_name
         }
+      }
 
-        return {
-          id: item.id,
-          entry_date: item.entry_date,
-          original_ironing: original.ironing,
-          original_saree_ironing: original.saree_ironing,
-          original_dry_cleaning: original.dry_cleaning,
-          ironing: item.ironing || 0,
-          saree_ironing: item.saree_ironing || 0,
-          dry_cleaning: item.dry_cleaning || 0,
-          correction_reason: item.correction_reason,
-          created_at: item.created_at,
-          corrected_by: correctedBy,
-          customers: {
-            name: item.customers?.[0]?.name || 'Unknown'
-          },
-          previous_version_id: item.previous_version_id
-        }
-      })
+      return {
+        id: item.id,
+        entry_date: item.entry_date,
+        original_ironing: original.ironing,
+        original_saree_ironing: original.saree_ironing,
+        original_dry_cleaning: original.dry_cleaning,
+        ironing: item.ironing || 0,
+        saree_ironing: item.saree_ironing || 0,
+        dry_cleaning: item.dry_cleaning || 0,
+        correction_reason: item.correction_reason,
+        created_at: item.created_at,
+        corrected_by: correctedBy,
+        customers: { name: customerName },
+        previous_version_id: item.previous_version_id
+      }
+    })
 
     setCorrections(formattedCorrections)
   } catch (err) {

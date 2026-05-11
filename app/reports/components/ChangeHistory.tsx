@@ -50,7 +50,7 @@ export default function ChangeHistory({
         title: `Change History - ${startDate} to ${endDate}`,
         orientation: 'landscape',  // Landscape fits more columns
         margin: 10,
-        quality: 0.7
+        // quality: 0.7
       })
     } catch (error) {
       console.error('PDF generation failed:', error)
@@ -192,7 +192,8 @@ export default function ChangeHistory({
 
                   {/* Customer */}
                   <td className="py-1.5 px-1 font-medium truncate text-center text-xs print:text-[7pt]">
-                    {correction.customers?.name}
+                    {correction.customers?.name || 
+                      (Array.isArray(correction.customers) ? correction.customers[0]?.name : 'Unknown')}
                   </td>
 
                   {/* Original Ironing */}

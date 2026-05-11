@@ -204,6 +204,9 @@ export default function LoginPage() {
         </a>
         {' '}for Nandlal Laundry. All rights reserved.
       </p>
+      <p className="text-center text-xs text-gray-500">
+        Version 2.0.0
+      </p>
     </div>
   )
 }
