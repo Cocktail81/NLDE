@@ -1,0 +1,32 @@
+-- User profiles (extends Supabase auth)
+user_profiles (
+  id UUID PRIMARY KEY,
+  role VARCHAR(20), -- 'admin' or 'operator'
+  full_name VARCHAR(100),
+  created_at TIMESTAMP
+)
+
+-- Customers
+customers (
+  id UUID PRIMARY KEY,
+  name VARCHAR(200) UNIQUE,
+  is_active BOOLEAN,
+  created_at TIMESTAMP,
+  created_by UUID REFERENCES user_profiles(id)
+)
+
+-- Entries (versioned)
+entries (
+  id UUID PRIMARY KEY,
+  previous_version_id UUID REFERENCES entries(id),
+  is_current_version BOOLEAN,
+  entry_date DATE,
+  customer_id UUID REFERENCES customers(id),
+  ironing INTEGER,
+  saree_ironing INTEGER,
+  dry_cleaning INTEGER,
+  correction_reason TEXT,
+  is_correction BOOLEAN,
+  created_at TIMESTAMP,
+  created_by UUID REFERENCES user_profiles(id)
+)
