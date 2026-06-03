@@ -1,15 +1,30 @@
 'use client'
 
-import { useState, useEffect, FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase/client'
 import CustomerAutocomplete from '@/components/CustomerAutocomplete'
 import PageLayout from '@/components/layout/PageLayout'
+import {
+  LAUNDRY_ITEMS,
+  calculateLaundryTotal,
+  parseLaundryItemQuantities,
+  type LaundryItemKey,
+} from '@/lib/laundry-items'
 
 interface Customer {
   id: string
   name: string
 }
+
+type LaundryItem = (typeof LAUNDRY_ITEMS)[number]
+
+const DRY_CLEANING_ITEM_KEYS = new Set<LaundryItemKey>([
+  'dry_cleaning',
+  'dress_dc',
+  'gown_dc',
+  'coat_blazer_dc',
+])
 
 export default function NewEntryPage() {
   const router = useRouter()
@@ -20,9 +35,15 @@ export default function NewEntryPage() {
   // Form state
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0])
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
-  const [ironing, setIroning] = useState('0')
-  const [sareeIroning, setSareeIroning] = useState('0')
-  const [dryCleaning, setDryCleaning] = useState('0')
+  const [itemQuantities, setItemQuantities] = useState<
+    Record<LaundryItemKey, string>
+  >(() =>
+    LAUNDRY_ITEMS.reduce((acc, item) => {
+      acc[item.key] = '0'
+      return acc
+    }, {} as Record<LaundryItemKey, string>)
+  )
+  const [showDryCleaning, setShowDryCleaning] = useState(false)
   
   // For adding new customer on the fly
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false)
@@ -30,31 +51,57 @@ export default function NewEntryPage() {
   const [addingCustomer, setAddingCustomer] = useState(false)
 
   useEffect(() => {
-  const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    
-    if (!session) {
-      router.push('/login')
-      return
+    const checkAuth = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+  
+      if (!session) {
+        router.push('/login')
+      }
     }
-  }
+  
+    void checkAuth()
+  }, [router])
 
-  checkAuth()
-}, [router])
+  const regularLaundryItems = LAUNDRY_ITEMS.filter(
+    item => !DRY_CLEANING_ITEM_KEYS.has(item.key)
+  )
+  
+  const dryCleaningItems = LAUNDRY_ITEMS.filter(item =>
+    DRY_CLEANING_ITEM_KEYS.has(item.key)
+  )
+  
+  const hasDryCleaningQuantity = dryCleaningItems.some(
+    item => (Number.parseInt(itemQuantities[item.key], 10) || 0) > 0
+  )
+  
+  const summaryItems =
+    showDryCleaning || hasDryCleaningQuantity
+      ? LAUNDRY_ITEMS
+      : regularLaundryItems
 
   const handleAddCustomer = async (e: FormEvent) => {
     e.preventDefault()
     if (!newCustomerName.trim()) return
 
     setAddingCustomer(true)
-    const { data: { session } } = await supabase.auth.getSession()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session) {
+      setAddingCustomer(false)
+      router.push('/login')
+      return
+    }
     
     const { data, error: insertError } = await supabase
       .from('customers')
       .insert([
         {
           name: newCustomerName.trim(),
-          created_by: session?.user?.id
+          created_by: session.user.id
         }
       ])
       .select()
@@ -88,6 +135,31 @@ export default function NewEntryPage() {
 
     return data && data.length > 0
   }
+  const handleQuantityChange = (key: LaundryItemKey, value: string) => {
+    const normalizedValue = value.replace(/\D/g, '')
+  
+    setItemQuantities(prev => ({
+      ...prev,
+      [key]: normalizedValue || '0',
+    }))
+  }
+  
+  const resetItemQuantities = () => {
+    setItemQuantities(
+      LAUNDRY_ITEMS.reduce((acc, item) => {
+        acc[item.key] = '0'
+        return acc
+      }, {} as Record<LaundryItemKey, string>)
+    )
+  }
+  
+  const getParsedItemQuantities = () => {
+    return parseLaundryItemQuantities(itemQuantities)
+  }
+  
+  const calculateTotal = () => {
+    return calculateLaundryTotal(getParsedItemQuantities())
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -108,28 +180,31 @@ export default function NewEntryPage() {
     // Check for duplicate
     const hasDuplicate = await checkDuplicate()
     if (hasDuplicate) {
-      const proceed = window.confirm(
-        `An entry already exists for ${selectedCustomer.name} on ${date}.\n\n` +
-        `Do you want to create this as a correction? (Will create new version)`
+      setError(
+        `An entry already exists for ${selectedCustomer.name} on ${date}. Please open the existing entry and use Correct Entry.`
       )
-      if (!proceed) return
+      return
     }
-
     setLoading(true)
 
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      
+      if (!session) {
+        router.push('/login')
+        return
+      }
       
       const entryData = {
         entry_date: date,
         customer_id: selectedCustomer.id,
-        ironing: parseInt(ironing) || 0,
-        saree_ironing: parseInt(sareeIroning) || 0,
-        dry_cleaning: parseInt(dryCleaning) || 0,
-        created_by: session?.user?.id,
+        ...getParsedItemQuantities(),
+        created_by: session.user.id,
         is_current_version: true,
-        is_correction: hasDuplicate,
-        correction_reason: hasDuplicate ? 'New entry created for same date' : null
+        is_correction: false,
+        correction_reason: null,
       }
 
       const { error: submitError } = await supabase
@@ -141,11 +216,10 @@ export default function NewEntryPage() {
       }
 
       // Reset all form fields
-      setDate(new Date().toISOString().split('T')[0])  // Reset to today's date
-      setSelectedCustomer(null)                        // Clear customer selection
-      setIroning('0')                                  // Reset to 0
-      setSareeIroning('0')                             // Reset to 0
-      setDryCleaning('0')                              // Reset to 0
+      setDate(new Date().toISOString().split('T')[0])
+      setSelectedCustomer(null)
+      resetItemQuantities()
+      setShowDryCleaning(false)
       
       // Show success message
       setSuccess(true)
@@ -167,12 +241,36 @@ export default function NewEntryPage() {
     }
   }
 
-  const calculateTotal = () => {
-    const iron = parseInt(ironing) || 0
-    const saree = parseInt(sareeIroning) || 0
-    const dry = parseInt(dryCleaning) || 0
-    return iron + saree + dry
-  }
+  const renderQuantityField = (item: LaundryItem) => (
+    <div key={item.key}>
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        {item.label}
+      </label>
+  
+      <div className="relative">
+        <input
+          type="number"
+          min="0"
+          step="1"
+          inputMode="numeric"
+          value={itemQuantities[item.key]}
+          onChange={event =>
+            handleQuantityChange(item.key, event.target.value)
+          }
+          className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-gray-800"
+          placeholder="0"
+        />
+  
+        <div className="absolute right-3 top-3 text-gray-500">
+          items
+        </div>
+      </div>
+  
+      <p className="text-xs text-gray-500 mt-2">
+        {item.description}
+      </p>
+    </div>
+  )
 
   return (
     <PageLayout 
@@ -261,90 +359,63 @@ export default function NewEntryPage() {
                 <label className="block text-sm font-semibold text-gray-800 mb-4">
                   Service Quantities
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                  {/* Ironing */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Ironing
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="0"
-                        value={ironing}
-                        onChange={(e) => setIroning(e.target.value)}
-                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-gray-800"
-                        placeholder="0"
-                      />
-                      <div className="absolute right-3 top-3 text-gray-500">
-                        items
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-2">Regular clothes ironing</p>
+
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {regularLaundryItems.map(renderQuantityField)}
                   </div>
 
-                  {/* Saree Ironing */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Saree Ironing
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="0"
-                        value={sareeIroning}
-                        onChange={(e) => setSareeIroning(e.target.value)}
-                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-gray-800"
-                        placeholder="0"
-                      />
-                      <div className="absolute right-3 top-3 text-gray-500">
-                        items
+                  <div className="border border-gray-200 rounded-xl overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowDryCleaning(prev => !prev)}
+                      className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+                    >
+                      <div>
+                        <span className="font-semibold text-gray-800">
+                          Dry Cleaning
+                        </span>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Show dry-cleaning service fields
+                        </p>
                       </div>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-2">Saree-specific ironing</p>
-                  </div>
 
-                  {/* Dry Cleaning */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Dry Cleaning
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="0"
-                        value={dryCleaning}
-                        onChange={(e) => setDryCleaning(e.target.value)}
-                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-gray-800"
-                        placeholder="0"
-                      />
-                      <div className="absolute right-3 top-3 text-gray-500">
-                        items
+                      <span className="text-sm font-medium text-blue-600">
+                        {showDryCleaning ? 'Hide' : 'Show'}
+                      </span>
+                    </button>
+
+                    {showDryCleaning && (
+                      <div className="p-4 border-t border-gray-200">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                          {dryCleaningItems.map(renderQuantityField)}
+                        </div>
                       </div>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-2">Dry cleaning service</p>
+                    )}
                   </div>
                 </div>
-              </div>
+              </div>              
 
               {/* Summary */}
               <div className="bg-blue-50 p-6 rounded-xl">
                 <h3 className="font-semibold text-gray-800 mb-4">Entry Summary</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <div className="text-center p-4 bg-white rounded-lg border">
-                    <div className="text-2xl font-bold text-gray-900">{parseInt(ironing) || 0}</div>
-                    <div className="text-sm text-gray-600">Ironing</div>
-                  </div>
-                  <div className="text-center p-4 bg-white rounded-lg border">
-                    <div className="text-2xl font-bold text-gray-900">{parseInt(sareeIroning) || 0}</div>
-                    <div className="text-sm text-gray-600">Saree Ironing</div>
-                  </div>
-                  <div className="text-center p-4 bg-white rounded-lg border">
-                    <div className="text-2xl font-bold text-gray-900">{parseInt(dryCleaning) || 0}</div>
-                    <div className="text-sm text-gray-600">Dry Cleaning</div>
-                  </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                {summaryItems.map(item => (
+                    <div key={item.key} className="text-center p-4 bg-white rounded-lg border">
+                      <div className="text-2xl font-bold text-gray-900">
+                        {Number.parseInt(itemQuantities[item.key], 10) || 0}
+                      </div>
+                      <div className="text-sm text-gray-600">
+                      {item.shortLabel}
+                      </div>
+                    </div>
+                  ))}
+
                   <div className="text-center p-4 rounded-lg border border-blue-300 bg-blue-100">
-                    <div className="text-2xl font-bold text-blue-700">{calculateTotal()}</div>
+                    <div className="text-2xl font-bold text-blue-700">
+                      {calculateTotal()}
+                    </div>
                     <div className="text-sm text-blue-600">Total Items</div>
                   </div>
                 </div>
@@ -395,15 +466,16 @@ export default function NewEntryPage() {
           <ul className="space-y-2 text-sm text-gray-600">
             <li>1. <span className="font-medium">Select date</span> - Defaults to today, can change to any date</li>
             <li>2. <span className="font-medium">Choose customer</span> - Search existing or add new on the fly</li>
-            <li>3. <span className="font-medium">Enter quantities</span> - For each service type (default 0)</li>
+            <li>3. <span className="font-medium">Enter quantities</span> - For each laundry item/service type (default 0)</li>
             <li>4. <span className="font-medium">Review summary</span> - Check total items before saving</li>
             <li>5. <span className="font-medium">Save</span> - Entry will be saved and appear in entries list</li>
           </ul>
           <div className="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-            <p className="text-sm text-yellow-800">
-              <span className="font-semibold">Note:</span> If an entry already exists for the same customer and date, 
-              you&apos;ll be asked if you want to create a correction (new version).
-            </p>
+          <p className="text-sm text-yellow-800">
+            <span className="font-semibold">Note:</span> If an entry already exists for
+            the same customer and date, open the existing entry and use Correct Entry
+            instead.
+          </p>
           </div>
         </div>
       </div>

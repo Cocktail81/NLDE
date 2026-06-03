@@ -1,7 +1,28 @@
-// lib/supabase.ts
-import { createClient } from '@supabase/supabase-js'
+import { createBrowserClient } from '@supabase/ssr'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+function getSupabaseConfig() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabasePublishableKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 
-export const supabase = createClient(supabaseUrl, supabaseKey)
+  if (!supabaseUrl) {
+    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL')
+  }
+
+  if (!supabasePublishableKey) {
+    throw new Error('Missing NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY')
+  }
+
+  return {
+    supabaseUrl,
+    supabasePublishableKey,
+  }
+}
+
+export function createClient() {
+  const { supabaseUrl, supabasePublishableKey } = getSupabaseConfig()
+
+  return createBrowserClient(supabaseUrl, supabasePublishableKey)
+}
+
+export const supabase = createClient()

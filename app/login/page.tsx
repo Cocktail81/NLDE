@@ -2,7 +2,7 @@
 
 import { useState, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase/client'
 import Image from 'next/image'
 
 const CURRENT_YEAR = new Date().getFullYear()
@@ -50,9 +50,9 @@ export default function LoginPage() {
           console.error('[Login error]', error.message)
         }
       } else if (data.user && data.session) {
-        // Use Next.js router — avoids full page reload and respects middleware
-        router.push('/dashboard')
+        // Use Next.js router — avoids full page reload and respects middleware        
         router.refresh() // ensures server components re-fetch with the new session
+        router.replace('/dashboard')
       } else {
         setError('Login succeeded but no session was received. Please try again.')
       }

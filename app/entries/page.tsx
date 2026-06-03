@@ -2,17 +2,19 @@
 
 import { useState, useEffect, Suspense, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase/client'
 import PageLayout from '@/components/layout/PageLayout'
 import { useUrlCustomerFilter } from '@/hooks/useUrlCustomerFilter'
+import {
+  LAUNDRY_ITEMS,
+  calculateLaundryTotal,
+  type LaundryItemQuantities,
+} from '@/lib/laundry-items'
 
-interface Entry {
+interface Entry extends LaundryItemQuantities {
   id: string
   entry_date: string
   customer_name: string
-  ironing: number
-  saree_ironing: number
-  dry_cleaning: number
   total: number
   is_correction: boolean
   correction_reason: string | null
@@ -142,7 +144,13 @@ function EntriesContent() {
         customer_id,
         ironing,
         saree_ironing,
+        gown,
+        dhoti,
+        coat_blazer,
         dry_cleaning,
+        dress_dc,
+        gown_dc,
+        coat_blazer_dc,
         is_correction,
         correction_reason,
         created_at,
@@ -174,12 +182,9 @@ function EntriesContent() {
       console.error('Error fetching entries:', error)
       setEntries([])
     } else if (data) {
-      const formattedEntries: Entry[] = data.map((entry: {
+      const formattedEntries: Entry[] = data.map((entry: LaundryItemQuantities & {
         id: string
         entry_date: string
-        ironing: number
-        saree_ironing: number
-        dry_cleaning: number
         is_correction: boolean
         correction_reason: string | null
         created_at: string
@@ -193,17 +198,20 @@ function EntriesContent() {
             customerName = entry.customers.name
           }
         }
+        const itemQuantities = LAUNDRY_ITEMS.reduce((acc, item) => {
+          acc[item.key] = entry[item.key] || 0
+          return acc
+        }, {} as LaundryItemQuantities)
+        
         return {
           id: entry.id,
           entry_date: entry.entry_date,
           customer_name: customerName,
-          ironing: entry.ironing || 0,
-          saree_ironing: entry.saree_ironing || 0,
-          dry_cleaning: entry.dry_cleaning || 0,
-          total: (entry.ironing || 0) + (entry.saree_ironing || 0) + (entry.dry_cleaning || 0),
+          ...itemQuantities,
+          total: calculateLaundryTotal(itemQuantities),
           is_correction: entry.is_correction || false,
           correction_reason: entry.correction_reason,
-          created_at: entry.created_at
+          created_at: entry.created_at,
         }
       })
       setEntries(formattedEntries)
@@ -238,35 +246,44 @@ function EntriesContent() {
   // Handle customer filter from URL after customers are loaded
 useUrlCustomerFilter(customerIdParam, customers, setSelectedCustomerId, setSelectedCustomerName)
 
-  const exportToCSV = () => {
-    if (entries.length === 0) return
+const exportToCSV = () => {
+  if (entries.length === 0) return
 
-    const headers = ['Date', 'Customer', 'Ironing', 'Saree Ironing', 'Dry Cleaning', 'Total', 'Type']
-    const csvRows = [headers.join(',')]
+  const headers = [
+    'Date',
+    'Customer',
+    ...LAUNDRY_ITEMS.map(item => item.shortLabel),
+    'Total',
+    'Type',
+  ]
 
-    for (const entry of entries) {
-      const row = [
-        formatDate(entry.entry_date),
-        `"${entry.customer_name}"`,
-        entry.ironing,
-        entry.saree_ironing,
-        entry.dry_cleaning,
-        entry.total,
-        entry.is_correction ? 'Corrected' : 'Original'
-      ]
-      csvRows.push(row.join(','))
-    }
+  const csvRows = [headers.join(',')]
 
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `entries_export_${new Date().toISOString().split('T')[0]}.csv`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+  for (const entry of entries) {
+    const row = [
+      formatDate(entry.entry_date),
+      `"${entry.customer_name.replace(/"/g, '""')}"`,
+      ...LAUNDRY_ITEMS.map(item => entry[item.key]),
+      entry.total,
+      entry.is_correction ? 'Corrected' : 'Original',
+    ]
+
+    csvRows.push(row.join(','))
   }
+
+  const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+
+  a.href = url
+  a.download = `entries_export_${new Date().toISOString().split('T')[0]}.csv`
+
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+
+  URL.revokeObjectURL(url)
+}
 
   const clearFilters = () => {
     setSelectedCustomerId('')
@@ -296,12 +313,12 @@ useUrlCustomerFilter(customerIdParam, customers, setSelectedCustomerId, setSelec
   }
 
   // Calculate totals
-  const totals = entries.reduce((acc, entry) => ({
-    ironing: acc.ironing + entry.ironing,
-    sareeIroning: acc.sareeIroning + entry.saree_ironing,
-    dryCleaning: acc.dryCleaning + entry.dry_cleaning,
-    total: acc.total + entry.total
-  }), { ironing: 0, sareeIroning: 0, dryCleaning: 0, total: 0 })
+  const itemTotals = LAUNDRY_ITEMS.reduce((acc, item) => {
+    acc[item.key] = entries.reduce((sum, entry) => sum + entry[item.key], 0)
+    return acc
+  }, {} as LaundryItemQuantities)
+  
+  const grandTotal = entries.reduce((sum, entry) => sum + entry.total, 0)
 
   return (
     <PageLayout title="All Entries" showBackButton={true} customBackPath="/dashboard">
@@ -443,22 +460,27 @@ useUrlCustomerFilter(customerIdParam, customers, setSelectedCustomerId, setSelec
 
         {/* Summary Stats */}
         {entries.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
             <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
               <div className="text-2xl font-bold text-gray-900">{entries.length}</div>
               <div className="text-sm text-gray-600">Total Entries</div>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-              <div className="text-2xl font-bold text-blue-600">{totals.ironing}</div>
-              <div className="text-sm text-gray-600">Ironing</div>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-              <div className="text-2xl font-bold text-green-600">{totals.sareeIroning}</div>
-              <div className="text-sm text-gray-600">Saree Ironing</div>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-              <div className="text-2xl font-bold text-purple-600">{totals.dryCleaning}</div>
-              <div className="text-sm text-gray-600">Dry Cleaning</div>
+
+            {LAUNDRY_ITEMS.map(item => (
+              <div
+                key={item.key}
+                className="bg-white rounded-xl border border-gray-200 p-4 text-center"
+              >
+                <div className="text-2xl font-bold text-blue-600">
+                  {itemTotals[item.key]}
+                </div>
+                <div className="text-sm text-gray-600">{item.shortLabel}</div>
+              </div>
+            ))}
+
+            <div className="bg-blue-50 rounded-xl border border-blue-200 p-4 text-center">
+              <div className="text-2xl font-bold text-blue-700">{grandTotal}</div>
+              <div className="text-sm text-blue-700">Total Items</div>
             </div>
           </div>
         )}
@@ -494,9 +516,14 @@ useUrlCustomerFilter(customerIdParam, customers, setSelectedCustomerId, setSelec
                   <tr>
                     <th className="py-3 px-4 text-left font-semibold text-gray-900">Date</th>
                     <th className="py-3 px-4 text-left font-semibold text-gray-900">Customer</th>
-                    <th className="py-3 px-4 text-right font-semibold text-gray-900">Ironing</th>
-                    <th className="py-3 px-4 text-right font-semibold text-gray-900">Saree Ironing</th>
-                    <th className="py-3 px-4 text-right font-semibold text-gray-900">Dry Cleaning</th>
+                    {LAUNDRY_ITEMS.map(item => (
+                      <th
+                        key={item.key}
+                        className="py-3 px-4 text-right font-semibold text-gray-900"
+                      >
+                        {item.shortLabel}
+                      </th>
+                    ))}
                     <th className="py-3 px-4 text-right font-semibold text-gray-900">Total</th>
                     <th className="py-3 px-4 text-center font-semibold text-gray-900">Type</th>
                     <th className="py-3 px-4 text-center font-semibold text-gray-900">Actions</th>
@@ -511,9 +538,11 @@ useUrlCustomerFilter(customerIdParam, customers, setSelectedCustomerId, setSelec
                       <td className="py-3 px-4 font-medium text-gray-900">
                         {entry.customer_name}
                       </td>
-                      <td className="py-3 px-4 text-right text-gray-700">{entry.ironing}</td>
-                      <td className="py-3 px-4 text-right text-gray-700">{entry.saree_ironing}</td>
-                      <td className="py-3 px-4 text-right text-gray-700">{entry.dry_cleaning}</td>
+                      {LAUNDRY_ITEMS.map(item => (
+                        <td key={item.key} className="py-3 px-4 text-right text-gray-700">
+                          {entry[item.key]}
+                        </td>
+                      ))}
                       <td className="py-3 px-4 text-right font-semibold text-gray-900">{entry.total}</td>
                       <td className="py-3 px-4 text-center">
                         {entry.is_correction ? (
@@ -541,10 +570,18 @@ useUrlCustomerFilter(customerIdParam, customers, setSelectedCustomerId, setSelec
                   <tr>
                     <td className="py-3 px-4 font-semibold text-gray-900">Totals</td>
                     <td className="py-3 px-4"></td>
-                    <td className="py-3 px-4 text-right font-semibold text-blue-600">{totals.ironing}</td>
-                    <td className="py-3 px-4 text-right font-semibold text-green-600">{totals.sareeIroning}</td>
-                    <td className="py-3 px-4 text-right font-semibold text-purple-600">{totals.dryCleaning}</td>
-                    <td className="py-3 px-4 text-right font-semibold text-gray-900">{totals.total}</td>
+                    {LAUNDRY_ITEMS.map(item => (
+                      <td
+                        key={item.key}
+                        className="py-3 px-4 text-right font-semibold text-blue-600"
+                      >
+                        {itemTotals[item.key]}
+                      </td>
+                    ))}
+
+                    <td className="py-3 px-4 text-right font-semibold text-gray-900">
+                      {grandTotal}
+                    </td>
                     <td className="py-3 px-4"></td>
                     <td className="py-3 px-4"></td>
                   </tr>
