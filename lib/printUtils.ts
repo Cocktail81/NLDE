@@ -1,28 +1,81 @@
 // lib/printUtils.ts
 
+type PrintOrientation = 'portrait' | 'landscape'
+
 interface PrintOptions {
   title: string
   subtitle?: string
   dateRange?: string
   customerName?: string
-  showCompanyLogo?: boolean
   companyName?: string
   additionalInfo?: Array<{ label: string; value: string | number }>
+  orientation?: PrintOrientation
+  compact?: boolean
+}
+
+function formatGeneratedDateTime() {
+  const now = new Date()
+
+  const date = now.toLocaleDateString('en-GB')
+  const time = now.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  })
+
+  return `${date}, ${time}`
+}
+
+function escapeHtml(value: string | number) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+function getPrintableContent(reportContent: Element) {
+  const clonedContent = reportContent.cloneNode(true) as HTMLElement
+
+  clonedContent
+    .querySelectorAll(
+      [
+        'button',
+        '.print-only',
+        '.print\\:hidden',
+        '.fixed',
+        '[data-print-hidden="true"]',
+      ].join(',')
+    )
+    .forEach(element => element.remove())
+
+  const tables = Array.from(clonedContent.querySelectorAll('table'))
+
+  if (tables.length > 0) {
+    return tables.map(table => table.outerHTML).join('\n')
+  }
+
+  return clonedContent.innerHTML
 }
 
 export const printReport = (options: PrintOptions) => {
-  // Get the report content from the DOM
   const reportContent = document.querySelector('.report-content')
+
   if (!reportContent) {
     console.error('Report content not found')
     return
   }
 
-  // Get the current date for the report
-  const currentDate = new Date().toLocaleString()
+  const printableContent = getPrintableContent(reportContent)
+  const generatedAt = formatGeneratedDateTime()
+  const orientation = options.orientation || 'landscape'
+  const compactClass = options.compact ? 'compact' : ''
+  const reportTitle = `${options.title} - Nandlal Laundry`
 
-  // Create a print-friendly version
   const printWindow = window.open('', '_blank')
+
   if (!printWindow) {
     alert('Please allow pop-ups to print reports')
     return
@@ -31,332 +84,255 @@ export const printReport = (options: PrintOptions) => {
   printWindow.document.write(`
     <!DOCTYPE html>
     <html>
-    <head>
-      <title>${options.title} - Nandlal Laundry</title>
-      <meta charset="UTF-8">
-      <style>
-        /* Reset and Base Styles */
-        * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-        }
+      <head>
+        <title>${escapeHtml(reportTitle)}</title>
+        <meta charset="UTF-8" />
+        <style>
+          * {
+            box-sizing: border-box;
+          }
 
-        body {
-          font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-          background: white;
-          color: #1f2937;
-          line-height: 1.5;
-          padding: 20px;
-        }
-
-        /* Print Optimization */
-        @media print {
-          body {
-            padding: 0;
-            margin: 0;
-          }
-          .no-break {
-            page-break-inside: avoid;
-          }
-          .page-break {
-            page-break-before: always;
-          }
           @page {
-            size: A4;
-            margin: 2cm;
+            size: A4 ${orientation};
+            margin: 10mm;
           }
-        }
 
-        /* Report Container */
-        .report-container {
-          max-width: 1200px;
-          margin: 0 auto;
-          background: white;
-        }
-
-        /* Header Section */
-        .report-header {
-          text-align: center;
-          margin-bottom: 30px;
-          padding-bottom: 20px;
-          border-bottom: 2px solid #2563eb;
-        }
-
-        .company-name {
-          font-size: 28px;
-          font-weight: bold;
-          color: #1e40af;
-          margin-bottom: 5px;
-        }
-
-        .company-tagline {
-          font-size: 14px;
-          color: #6b7280;
-          margin-bottom: 10px;
-        }
-
-        .report-title {
-          font-size: 20px;
-          font-weight: bold;
-          color: #111827;
-          margin-top: 15px;
-        }
-
-        .report-subtitle {
-          font-size: 14px;
-          color: #4b5563;
-          margin-top: 5px;
-        }
-
-        /* Info Cards */
-        .info-grid {
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: center;
-          gap: 20px;
-          margin: 25px 0;
-        }
-
-        .info-card {
-          background: #f9fafb;
-          border: 1px solid #e5e7eb;
-          border-radius: 8px;
-          padding: 15px 25px;
-          min-width: 120px;
-          text-align: center;
-        }
-
-        .info-label {
-          font-size: 12px;
-          font-weight: 600;
-          text-transform: uppercase;
-          color: #6b7280;
-          letter-spacing: 0.5px;
-          margin-bottom: 5px;
-        }
-
-        .info-value {
-          font-size: 24px;
-          font-weight: bold;
-          color: #1f2937;
-        }
-
-        /* Summary Cards */
-        .summary-grid {
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: center;
-          gap: 15px;
-          margin: 25px 0;
-        }
-
-        .summary-card {
-          background: #f9fafb;
-          border: 1px solid #e5e7eb;
-          border-radius: 10px;
-          padding: 15px 20px;
-          min-width: 120px;
-          text-align: center;
-        }
-
-        .summary-card.total {
-          background: #eff6ff;
-          border-color: #bfdbfe;
-        }
-
-        .summary-label {
-          font-size: 12px;
-          font-weight: 600;
-          color: #6b7280;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          margin-bottom: 8px;
-        }
-
-        .summary-value {
-          font-size: 28px;
-          font-weight: bold;
-          color: #111827;
-        }
-
-        .summary-value.total {
-          color: #1e40af;
-        }
-
-        /* Tables */
-        .report-table {
-          width: 100%;
-          border-collapse: collapse;
-          margin: 20px 0;
-          font-size: 12px;
-        }
-
-        .report-table th {
-          background: #f3f4f6;
-          color: #374151;
-          font-weight: 600;
-          padding: 10px 12px;
-          text-align: left;
-          border: 1px solid #e5e7eb;
-        }
-
-        .report-table td {
-          padding: 8px 12px;
-          border: 1px solid #e5e7eb;
-          color: #4b5563;
-        }
-
-        /* Change History Specific Styling */
-        .original-value {
-          background: #fee2e2;
-          color: #991b1b;
-          text-decoration: line-through;
-        }
-
-        .corrected-value {
-          background: #dcfce7;
-          color: #166534;
-          font-weight: 600;
-        }
-
-        .change-badge-positive {
-          display: inline-block;
-          background: #dcfce7;
-          color: #166534;
-          padding: 2px 6px;
-          border-radius: 4px;
-          font-size: 10px;
-          margin-left: 6px;
-        }
-
-        .change-badge-negative {
-          display: inline-block;
-          background: #fee2e2;
-          color: #991b1b;
-          padding: 2px 6px;
-          border-radius: 4px;
-          font-size: 10px;
-          margin-left: 6px;
-        }
-
-        /* Legend */
-        .legend {
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: center;
-          gap: 20px;
-          margin: 20px 0;
-          padding: 15px;
-          background: #f9fafb;
-          border-radius: 8px;
-          border: 1px solid #e5e7eb;
-        }
-
-        .legend-item {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 12px;
-        }
-
-        .legend-color {
-          width: 20px;
-          height: 20px;
-          border-radius: 4px;
-        }
-
-        .legend-color.red {
-          background: #fee2e2;
-          border: 1px solid #fecaca;
-        }
-
-        .legend-color.green {
-          background: #dcfce7;
-          border: 1px solid #bbf7d0;
-        }
-
-        .legend-color.blue {
-          background: #dbeafe;
-          border: 1px solid #bfdbfe;
-        }
-
-        /* Footer */
-        .report-footer {
-          margin-top: 30px;
-          padding-top: 20px;
-          border-top: 1px solid #e5e7eb;
-          text-align: center;
-          font-size: 10px;
-          color: #9ca3af;
-        }
-
-        .report-footer p {
-          margin: 5px 0;
-        }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-          .summary-card {
-            min-width: 100px;
-            padding: 10px 15px;
+          body {
+            margin: 0;
+            padding: 0;
+            background: #ffffff;
+            color: #111827;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 9px;
+            line-height: 1.35;
           }
-          .summary-value {
-            font-size: 20px;
+
+          body.compact {
+            font-size: 7px;
           }
-          .report-table {
+
+          .report-container {
+            width: 100%;
+          }
+
+          .report-header {
+            text-align: center;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #111827;
+          }
+
+          .company-name {
+            font-size: 18px;
+            font-weight: 700;
+            color: #1e40af;
+            margin-bottom: 2px;
+          }
+
+          .report-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #111827;
+            margin-top: 4px;
+          }
+
+          .report-subtitle {
+            font-size: 8px;
+            color: #4b5563;
+            margin-top: 2px;
+          }
+
+          .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+            gap: 4px;
+            margin: 8px 0 10px;            
+          }
+
+          .info-card {
+            border: 1px solid #d1d5db;
+            background: #f9fafb;
+            padding: 4px;
+            text-align: center;
+            break-inside: avoid;
+          }
+
+          .info-label {
+            font-size: 6px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #6b7280;
+            margin-bottom: 2px;
+          }
+
+          .info-value {
             font-size: 10px;
+            font-weight: 700;
+            color: #111827;            
           }
-          .report-table th,
-          .report-table td {
-            padding: 6px 8px;
-          }
-        }
-      </style>
-    </head>
-    <body>
-      <div class="report-container">
-        <!-- Header -->
-        <div class="report-header">
-          <div class="company-name">${options.companyName || 'Nandlal Laundry'}</div>
-          <div class="company-tagline">Quality Dry Cleaning & Laundry Services</div>
-          <div class="report-title">${options.title}</div>
-          ${options.subtitle ? `<div class="report-subtitle">${options.subtitle}</div>` : ''}
-          ${options.dateRange ? `<div class="report-subtitle">Period: ${options.dateRange}</div>` : ''}
-          ${options.customerName ? `<div class="report-subtitle">Customer: ${options.customerName}</div>` : ''}
-        </div>
 
-        <!-- Additional Info Cards -->
-        ${options.additionalInfo && options.additionalInfo.length > 0 ? `
-          <div class="info-grid">
-            ${options.additionalInfo.map(info => `
-              <div class="info-card">
-                <div class="info-label">${info.label}</div>
-                <div class="info-value">${info.value}</div>
-              </div>
-            `).join('')}
+          body.compact .info-grid {
+            grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+          }
+
+          body.compact .info-label {
+            font-size: 5px;
+          }
+
+          body.compact .info-value {
+            font-size: 8px;
+          }
+
+          .report-content-print {
+            width: 100%;
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            margin-top: 6px;
+            page-break-inside: auto;
+            text-align: center;
+          }
+
+          thead {
+            display: table-header-group;
+          }
+
+          tfoot {
+            display: table-footer-group;
+          }
+
+          tr {
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+
+          th,
+          td {
+            border: 1px solid #9ca3af;
+            padding: 3px 2px;
+            vertical-align: middle;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+          }
+
+          th {
+            background: #f3f4f6;
+            color: #111827;
+            font-weight: 700;
+            text-align: center;
+          }
+
+          td {
+            color: #111827;
+          }
+
+          body.compact th,
+          body.compact td {
+            padding: 2px 1px;
+          }
+
+          .report-footer {
+            margin-top: 10px;
+            padding-top: 6px;
+            border-top: 1px solid #d1d5db;
+            text-align: center;
+            font-size: 7px;
+            color: #6b7280;
+          }
+
+          .report-footer p {
+            margin: 2px 0;
+          }
+
+          @media print {
+            html,
+            body {
+              width: 100%;
+            }
+
+            .report-container {
+              page-break-after: auto;
+            }
+          }
+        </style>
+      </head>
+
+      <body class="${compactClass}">
+        <div class="report-container">
+          <div class="report-header">
+            <div class="company-name">
+              ${escapeHtml(options.companyName || 'Nandlal Laundry')}
+            </div>
+
+            <div class="report-title">
+              ${escapeHtml(options.title)}
+            </div>
+
+            ${
+              options.subtitle
+                ? `<div class="report-subtitle">${escapeHtml(options.subtitle)}</div>`
+                : ''
+            }
+
+            ${
+              options.dateRange
+                ? `<div class="report-subtitle">Period: ${escapeHtml(options.dateRange)}</div>`
+                : ''
+            }
+
+            ${
+              options.customerName
+                ? `<div class="report-subtitle">Customer: ${escapeHtml(options.customerName)}</div>`
+                : ''
+            }
+
+            <div class="report-subtitle">
+              Generated: ${escapeHtml(generatedAt)}
+            </div>
           </div>
-        ` : ''}
 
-        <!-- Report Content -->
-        <div class="report-content-print">
-          ${reportContent.innerHTML}
+          ${
+            options.additionalInfo && options.additionalInfo.length > 0
+              ? `
+                <div class="info-grid">
+                  ${options.additionalInfo
+                    .map(
+                      info => `
+                        <div class="info-card">
+                          <div class="info-label">${escapeHtml(info.label)}</div>
+                          <div class="info-value" style="text-align: center;">
+                            ${escapeHtml(info.value)}
+                          </div>
+                        </div>
+                      `
+                    )
+                    .join('')}
+                </div>
+              `
+              : ''
+          }
+
+          <div class="report-content-print">
+            ${printableContent}
+          </div>
+
+          <div class="report-footer">
+            <p>Nandlal Laundry - Data Entry System</p>
+            <p>Generated on: ${escapeHtml(generatedAt)}</p>
+            <p>This is a system-generated report.</p>
+          </div>
         </div>
 
-        <!-- Footer -->
-        <div class="report-footer">
-          <p>Nandlal Laundry - Data Entry System</p>
-          <p>Generated on: ${currentDate}</p>
-          <p>This is a system-generated report. For queries, please contact administrator.</p>
-        </div>
-      </div>
-      <script>
-        // Auto-print when loaded
-        window.onload = function() {
-          window.print();
-        }
-      </script>
-    </body>
+        <script>
+          window.onload = function () {
+            window.focus()
+            window.print()
+          }
+        </script>
+      </body>
     </html>
   `)
 

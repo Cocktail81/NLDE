@@ -3,20 +3,23 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
+import {
+  LAUNDRY_ITEMS,
+  calculateLaundryTotal,
+  type LaundryItemQuantities,
+} from '@/lib/laundry-items'
 import PageLayout from '@/components/layout/PageLayout'
+
 
 interface UserProfileData {
   role: string
   full_name: string | null
 }
 
-interface RecentEntry {
+interface RecentEntry extends LaundryItemQuantities {
   id: string
   entry_date: string
   customer_name: string
-  ironing: number
-  saree_ironing: number
-  dry_cleaning: number
   total: number
   is_correction: boolean
 }
@@ -69,54 +72,64 @@ export default function DashboardPage() {
       })
     }
 
-        const fetchRecentEntries = async () => {
-      const { data, error } = await supabase
-        .from('entries')
-        .select(`
-          id,
-          entry_date,
-          customer_id,
-          ironing,
-          saree_ironing,
-          dry_cleaning,
-          is_correction,
-          customers (name)
-        `)
-        .eq('is_current_version', true)
-        .order('entry_date', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(10)
+    
 
-      if (!error && data) {
-        const formattedEntries: RecentEntry[] = data.map((entry: {
+      const fetchRecentEntries = async () => {
+        type RawRecentEntry = Partial<LaundryItemQuantities> & {
           id: string
           entry_date: string
-          ironing: number
-          saree_ironing: number
-          dry_cleaning: number
-          is_correction: boolean
+          is_correction: boolean | null
           customers: { name: string } | { name: string }[] | null
-        }) => {
-          let customerName = 'Unknown'
-          if (entry.customers) {
-            if (Array.isArray(entry.customers) && entry.customers.length > 0) {
-              customerName = entry.customers[0].name
-            } else if (!Array.isArray(entry.customers) && entry.customers.name) {
-              customerName = entry.customers.name
-            }
-          }
+        }
+        const { data, error } = await supabase
+          .from('entries')
+          .select(`
+            id,
+            entry_date,
+            customer_id,
+            ironing,
+            saree_ironing,
+            gown,
+            dhoti,
+            coat_blazer,
+            dry_cleaning,
+            dress_dc,
+            gown_dc,
+            coat_blazer_dc,
+            is_correction,
+            customers (name)
+          `)
+          .eq('is_current_version', true)
+          .order('entry_date', { ascending: false })
+          .order('created_at', { ascending: false })
+          .limit(10)
+
+          if (!error && data) {
+          const formattedEntries: RecentEntry[] = data.map((entry: RawRecentEntry) => {
+            let customerName = 'Unknown'
           
-          return {
-            id: entry.id,
-            entry_date: entry.entry_date,
-            customer_name: customerName,
-            ironing: entry.ironing || 0,
-            saree_ironing: entry.saree_ironing || 0,
-            dry_cleaning: entry.dry_cleaning || 0,
-            total: (entry.ironing || 0) + (entry.saree_ironing || 0) + (entry.dry_cleaning || 0),
-            is_correction: entry.is_correction || false
-          }
-        })
+            if (entry.customers) {
+              if (Array.isArray(entry.customers) && entry.customers.length > 0) {
+                customerName = entry.customers[0].name
+              } else if (!Array.isArray(entry.customers) && entry.customers.name) {
+                customerName = entry.customers.name
+              }
+            }
+          
+            const itemQuantities = LAUNDRY_ITEMS.reduce((acc, item) => {
+              acc[item.key] = entry[item.key] || 0
+              return acc
+            }, {} as LaundryItemQuantities)
+          
+            return {
+              id: entry.id,
+              entry_date: entry.entry_date,
+              customer_name: customerName,
+              ...itemQuantities,
+              total: calculateLaundryTotal(itemQuantities),
+              is_correction: entry.is_correction || false,
+            }
+          })
         setRecentEntries(formattedEntries)
       }
       setLoading(false)
@@ -265,9 +278,14 @@ export default function DashboardPage() {
                 <tr>
                   <th className="py-3 px-4 text-left font-semibold text-gray-900">Date</th>
                   <th className="py-3 px-4 text-left font-semibold text-gray-900">Customer</th>
-                  <th className="py-3 px-4 text-center font-semibold text-gray-900">Ironing</th>
-                  <th className="py-3 px-4 text-center font-semibold text-gray-900">Saree</th>
-                  <th className="py-3 px-4 text-center font-semibold text-gray-900">Dry Clean</th>
+                  {LAUNDRY_ITEMS.map(item => (
+                    <th
+                      key={item.key}
+                      className="py-3 px-4 text-center font-semibold text-gray-900 whitespace-nowrap"
+                    >
+                      {item.shortLabel}
+                    </th>
+                  ))}
                   <th className="py-3 px-4 text-center font-semibold text-gray-900">Total</th>
                   <th className="py-3 px-4 text-center font-semibold text-gray-900">Type</th>
                 </tr>
@@ -285,15 +303,14 @@ export default function DashboardPage() {
                     <td className="py-3 px-4 font-medium text-gray-900">
                       {entry.customer_name}
                     </td>
-                    <td className="py-3 px-4 text-center text-gray-700">
-                      {entry.ironing}
-                    </td>
-                    <td className="py-3 px-4 text-center text-gray-700">
-                      {entry.saree_ironing}
-                    </td>
-                    <td className="py-3 px-4 text-center text-gray-700">
-                      {entry.dry_cleaning}
-                    </td>
+                    {LAUNDRY_ITEMS.map(item => (
+                      <td
+                        key={item.key}
+                        className="py-3 px-4 text-center text-gray-700"
+                      >
+                        {entry[item.key]}
+                      </td>
+                    ))}
                     <td className="py-3 px-4 text-center font-semibold text-gray-900">
                       {entry.total}
                     </td>

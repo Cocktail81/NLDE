@@ -1,181 +1,484 @@
 # 🧺 Nandlal Laundry - Data Entry System
 
+[![Next.js](https://img.shields.io/badge/Next.js-16.2.7-black)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19.2.7-blue)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8.3-blue)](https://www.typescriptlang.org/)
+[![Supabase](https://img.shields.io/badge/Supabase-2.106.2-green)](https://supabase.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Next.js](https://img.shields.io/badge/Next.js-16.2.6-black)](https://nextjs.org/)
-[![React](https://img.shields.io/badge/React-19.1.0-blue)](https://reactjs.org/)
-[![Supabase](https://img.shields.io/badge/Supabase-Latest-green)](https://supabase.com/)
 
-A comprehensive data entry and management system for laundry businesses with version control, correction tracking, and detailed reporting.
+A secure laundry data-entry and reporting system for Nandlal Laundry. The app supports customer management, daily laundry entry, correction history, dynamic laundry-item reporting, CSV/PDF/print exports, and Supabase-backed authentication with server-side login rate limiting.
+
+---
 
 ## 📋 Table of Contents
 
-- [Features](#features)
-- [Tech Stack](#tech-stack)
-- [Live Demo](#live-demo)
-- [Screenshots](#screenshots)
-- [Getting Started](#getting-started)
-- [Installation](#installation)
-- [Environment Variables](#environment-variables)
-- [Database Schema](#database-schema)
-- [User Roles](#user-roles)
-- [API Documentation](#api-documentation)
-- [Deployment](#deployment)
-- [Project Structure](#project-structure)
-- [Contributing](#contributing)
-- [License](#license)
-- [Support](#support)
+- [Features](#-features)
+- [Laundry Items](#-laundry-items)
+- [Tech Stack](#️-tech-stack)
+- [Getting Started](#-getting-started)
+- [Environment Variables](#-environment-variables)
+- [Database Notes](#-database-notes)
+- [Security and Hardening](#-security-and-hardening)
+- [Reports](#-reports)
+- [Project Structure](#-project-structure)
+- [Available Scripts](#-available-scripts)
+- [Deployment](#-deployment)
+- [Testing Checklist](#-testing-checklist)
+- [Roadmap](#️-roadmap)
+- [License](#-license)
+
+---
 
 ## ✨ Features
 
 ### Core Features
-- ✅ **Data Entry Form** - 5-field entry (Date, Customer, Ironing, Saree Ironing, Dry Cleaning)
-- ✅ **Customer Management** - Add, search, and soft-delete customers (admin only)
-- ✅ **Version Control** - Immutable entries with full correction history
-- ✅ **Correction System** - Create new versions of entries with change tracking
-- ✅ **Duplicate Prevention** - Warns when entry exists for same customer/date
 
-### Reporting & Analytics
-- 📊 **Daily Summary Report** - View and export daily entries
-- 📝 **Change History Report** - Track all corrections with before/after values
-- 👥 **Customer-wise Report** - Filter entries by customer with date range
-- 📅 **Date Range Report** - Flexible date range with customer filtering
-- 📥 **CSV Export** - Export any report to CSV format
-- 🖨️ **Print Functionality** - Print-optimized reports (A4 paper)
+- ✅ **Secure Login** using Supabase Auth.
+- ✅ **Server-side failed-login protection** with 5 failed attempts followed by a 10-minute cooldown.
+- ✅ **Customer Management** with customer search and customer creation from the entry screen.
+- ✅ **Daily Entry Form** with dynamic laundry-item quantities.
+- ✅ **Dry Cleaning UI Grouping** on the New Entry page to keep frequent-use items simple.
+- ✅ **Duplicate Prevention** for customer/date entries.
+- ✅ **Correction Workflow** with current-version tracking and correction history.
+- ✅ **Dashboard Recent Entries** updated for all current laundry-item fields.
+- ✅ **All Entries Page** with dynamic item columns, totals, filtering, pagination, and CSV export.
 
-### Security & Access Control
-- 🔐 **Authentication** - Secure login with Supabase Auth
-- 👑 **Role-Based Access** - Admin and Operator roles
-- 🛡️ **Row Level Security** - Database-level security policies
-- 👤 **Admin-Only Actions** - Customer deletion, user management
+### Reporting
 
-### User Experience
-- 📱 **Responsive Design** - Works on desktop, tablet, and mobile
-- 🔍 **Search & Filters** - Advanced filtering on entries page
-- 📄 **Pagination** - 20/50/100 items per page with navigation
-- ⚡ **Fast Performance** - Optimized queries with pagination
-- 🎨 **Modern UI** - Clean, professional interface with Tailwind CSS
+- 📊 **Daily Report**
+- 👥 **Customer Report**
+- 📅 **Date Range Report**
+- 📝 **Change History Report**
+- 📥 **CSV Export**
+- 📄 **Professional PDF Export** using client-side `pdfmake`
+- 🖨️ **Improved Browser Print Output**
+- 📆 **Consistent Date Format**: `dd/mm/yyyy`
+- 🕒 **Consistent Timestamp Format**: `dd/mm/yyyy, 10:23:18 AM`
+
+### Security
+
+- 🔐 Supabase Auth integration.
+- 🛡️ Row Level Security-ready Supabase design.
+- 🚦 Server-side login rate limiting through `/api/auth/login`.
+- 🧾 Login attempt audit table support.
+- 🔒 Security headers configured in `next.config.js`.
+- 🔑 Server-only Supabase secret key usage.
+- 🚫 No screenshot-based PDF export path.
+
+---
+
+## 🧺 Laundry Items
+
+Laundry items are centralized through `lib/laundry-items.ts` and used across entry screens, dashboard, reports, CSV export, PDF export, and print.
+
+Current item set:
+
+| Key | Display Label | Short Label |
+|---|---|---|
+| `ironing` | Iron | Iron |
+| `saree_ironing` | Saree Iron | Saree Iron |
+| `gown` | Gown | Gown |
+| `dhoti` | Dhoti | Dhoti |
+| `coat_blazer` | Coat / Blazer | Coat / Blazer |
+| `dry_cleaning` | Dry Cleaning | Dry Cleaning |
+| `dress_dc` | Dress - Dry Cleaning | Dress - DC |
+| `gown_dc` | Gown - Dry Cleaning | Gown - DC |
+| `coat_blazer_dc` | Coat / Blazer - Dry Cleaning | Coat / Blazer - DC |
+
+The New Entry page keeps Dry Cleaning fields collapsed by default:
+
+- Dry Cleaning
+- Dress - Dry Cleaning
+- Gown - Dry Cleaning
+- Coat / Blazer - Dry Cleaning
+
+The Correction page intentionally keeps all fields visible for full correction visibility.
+
+---
 
 ## 🛠️ Tech Stack
 
-| Category | Technology | Version |
-|----------|------------|---------|
-| **Frontend** | Next.js | 16.2.6 |
-| | React | 19.1.0 |
-| | TypeScript | 5.8.3 |
-| | Tailwind CSS | 3.4.17 |
-| **Backend** | Supabase | Latest |
-| | PostgreSQL | Latest |
-| **Authentication** | Supabase Auth | - |
-| **Hosting** | Vercel | - |
-| **Icons** | Lucide React | 0.487.0 |
-| **Date Handling** | date-fns | 4.1.0 |
-| **Form Management** | React Hook Form | 7.55.0 |
-| **Validation** | Zod | 3.24.2 |
+| Category | Technology |
+|---|---|
+| Framework | Next.js 16.2.7 |
+| UI | React 19.2.7 |
+| Language | TypeScript 5.8.3 |
+| Styling | Tailwind CSS 3.4.17 |
+| Backend/Auth/Database | Supabase |
+| Supabase Client | `@supabase/supabase-js`, `@supabase/ssr` |
+| PDF Reports | `pdfmake` |
+| Icons | `lucide-react` |
+| Deployment Target | Vercel |
+| Runtime | Node.js 20.9+ |
 
-## 🚀 Live Demo
+---
 
-**[View Live Demo](https://nlde.vercel.app)**
-
-*Demo credentials available upon request*
-
-## 📸 Screenshots
-
-### Dashboard
-![Dashboard](https://via.placeholder.com/800x400?text=Dashboard+Screenshot)
-
-### Data Entry Form
-![Data Entry](https://via.placeholder.com/800x400?text=Data+Entry+Screenshot)
-
-### Entries List with Filters
-![Entries List](https://via.placeholder.com/800x400?text=Entries+List+Screenshot)
-
-### Reports Page
-![Reports](https://via.placeholder.com/800x400?text=Reports+Screenshot)
-
-## 📦 Getting Started
+## 🚀 Getting Started
 
 ### Prerequisites
 
-- Node.js 18+ 
-- npm or yarn
-- Supabase account (free tier works)
-- Git
+- Node.js `>=20.9.0`
+- npm
+- Supabase project
+- Vercel account for deployment
 
 ### Installation
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/nlde.git
-   cd nlde
+```bash
+git clone <your-repository-url>
+cd nlde-app
+npm install
+```
 
+### Local Development
 
+```bash
+npm run dev
+```
 
-🤝 Contributing
-Contributions are welcome! Please follow these steps:
+Open:
 
-Fork the repository
+```txt
+http://localhost:3000
+```
 
-Create a feature branch (git checkout -b feature/AmazingFeature)
+For LAN testing, use your local network IP, for example:
 
-Commit changes (git commit -m 'Add some AmazingFeature')
+```txt
+http://192.168.20.10:3000
+```
 
-Push to branch (git push origin feature/AmazingFeature)
+---
 
-Open a Pull Request
+## 🔐 Environment Variables
 
-Development Guidelines
-Follow TypeScript best practices
+Create a local `.env.local` file:
 
-Use functional components with hooks
+```env
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
+SUPABASE_SECRET_KEY=your_supabase_secret_key
+```
 
-Maintain responsive design
+Important:
 
-Write meaningful commit messages
+- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are safe for browser use.
+- `SUPABASE_SECRET_KEY` is server-only and must never be exposed to client code.
+- Add the same variables in Vercel Project Settings for Production and Preview environments as needed.
 
-Test changes thoroughly
+---
 
-📄 License
-Distributed under the MIT License. See LICENSE file for more information.
+## 🗄️ Database Notes
 
-🙏 Acknowledgments
-Next.js - React framework
+The app uses Supabase/PostgreSQL with RLS-enabled tables.
 
-Supabase - Backend and authentication
+Core tables include:
 
-Tailwind CSS - Styling
+- `customers`
+- `entries`
+- `user_profiles`
+- `login_attempts`
 
-Vercel - Hosting
+Important data model notes:
 
-Lucide Icons - Icon library
+- Entries use `is_current_version` for current/correction tracking.
+- Historical correction rows are retained.
+- Only one current entry should exist per customer/date.
+- All laundry item quantity columns should default to `0` and be non-null.
+- `login_attempts` should be inaccessible to browser users and accessed only by the service role from server code.
 
-📧 Support
-For support, please contact:
+Recommended `login_attempts` access model:
 
-Email: support@nandlallaundry.com
+- RLS enabled.
+- No access for `anon`.
+- No access for `authenticated`.
+- Service role only.
 
-GitHub Issues: Create an issue
+---
 
-🗺️ Roadmap
-User management page (admin only)
+## 🔒 Security and Hardening
 
-Dashboard charts and analytics
+### Login Hardening
 
-Bulk entry mode
+The login page posts credentials to:
 
-Email notifications for daily summaries
+```txt
+/api/auth/login
+```
 
-Mobile app (React Native)
+The server-side route enforces:
 
-Barcode scanning for customers
+- Safe JSON parsing.
+- Email format validation.
+- Server-side failed-attempt tracking.
+- 5 failed attempts.
+- 10-minute cooldown.
+- Login attempt audit writes.
+- Generic safe error handling.
 
-Advanced reporting with charts
+The UI also includes:
 
-API for third-party integrations
+- Disabled Sign In button until email/password are entered.
+- Password show/hide button.
+- Lockout countdown display.
 
-⭐ Show Your Support
-If you found this project helpful, please give it a ⭐ on GitHub!
+### Security Headers
 
-Built with ❤️ for Nandlal Laundry
+Security headers are configured in `next.config.js` through `headers()`.
 
-Last Updated: May 2026
+Configured headers include:
+
+- `Content-Security-Policy`
+- `X-Frame-Options`
+- `X-Content-Type-Options`
+- `Referrer-Policy`
+- `Permissions-Policy`
+- `X-DNS-Prefetch-Control`
+- `Strict-Transport-Security` in production mode
+
+The CSP allows:
+
+- Self-hosted app assets.
+- Supabase HTTP/WebSocket connections.
+- Local development origins.
+- LAN development origin.
+- Cloudflare tunnel development origin when configured.
+
+### API Route Audit
+
+Current API routes reviewed:
+
+- `app/api/auth/login/route.ts`
+- `app/api/auth/callback/route.ts`
+
+Hardening applied:
+
+- Auth callback uses the server Supabase client.
+- Auth callback handles exchange errors safely.
+- Login route has server-side validation and rate limiting.
+- Audit insert/delete errors are checked.
+- Server-only admin client is isolated under `lib/supabase/admin.ts`.
+
+---
+
+## 📊 Reports
+
+Reports use centralized laundry item metadata and support all current item columns.
+
+### Available Reports
+
+- Daily Report
+- Customer Report
+- Date Range Report
+- Change History Report
+
+### Export Formats
+
+| Format | Status |
+|---|---|
+| On-screen report | Supported |
+| CSV | Supported |
+| PDF | Supported through client-side `pdfmake` |
+| Browser print | Supported with improved print helper |
+
+### PDF Notes
+
+PDF reports are generated from structured report data using `pdfmake`. They are not screenshots.
+
+Benefits:
+
+- Sharper text.
+- Selectable/searchable PDF content.
+- Better table layout.
+- Better page handling.
+- Professional report formatting.
+
+### Print Notes
+
+Browser print uses `lib/printUtils.ts` and supports:
+
+- A4 landscape orientation.
+- Compact mode for Change History.
+- Repeated table headers.
+- Better page-break behavior.
+- Consistent report headers and timestamps.
+
+---
+
+## 📁 Project Structure
+
+```txt
+app/
+  api/
+    auth/
+      callback/
+        route.ts
+      login/
+        route.ts
+  dashboard/
+    page.tsx
+  entries/
+    page.tsx
+    new/
+      page.tsx
+    [id]/
+      correct/
+        page.tsx
+  login/
+    page.tsx
+  reports/
+    page.tsx
+    components/
+    types/
+    utils/
+
+components/
+  CustomerAutocomplete.tsx
+  layout/
+  ui/
+
+lib/
+  auth.ts
+  laundry-items.ts
+  pdf/
+    report-pdf.ts
+  printUtils.ts
+  supabase/
+    admin.ts
+    client.ts
+    server.ts
+
+proxy.ts
+next.config.js
+```
+
+---
+
+## 🧪 Available Scripts
+
+```bash
+npm run dev
+npm run build
+npm run start
+npm run lint
+npm run lint:fix
+npm run type-check
+```
+
+Recommended pre-deployment check:
+
+```bash
+npm run type-check
+npm run lint
+npm run build
+```
+
+---
+
+## 🚢 Deployment
+
+The app is prepared for Vercel deployment.
+
+Deployment checklist:
+
+1. Push code to GitHub.
+2. Import the project into Vercel.
+3. Add environment variables:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+   - `SUPABASE_SECRET_KEY`
+4. Deploy.
+5. Verify security headers in browser DevTools.
+6. Test login, reports, PDF export, print, and rate limiting.
+
+Note: `output: 'standalone'` is not required for Vercel deployment and should remain removed unless self-hosting.
+
+---
+
+## ✅ Testing Checklist
+
+Before production use, verify:
+
+### Authentication
+
+- Valid login redirects to dashboard.
+- Invalid password shows remaining attempts.
+- 5 failed attempts trigger 10-minute cooldown.
+- Refresh does not bypass cooldown.
+- Callback route redirects correctly.
+
+### Entry Flow
+
+- New entry saves correctly.
+- Duplicate customer/date entries are blocked.
+- Dry Cleaning section expands/collapses on New Entry page.
+- Correction page shows all fields.
+- Correction history displays correctly.
+
+### Reports
+
+- Daily Report works.
+- Customer Report works.
+- Date Range Report works.
+- Change History Report works.
+- CSV export uses `dd/mm/yyyy`.
+- PDF export uses `dd/mm/yyyy`.
+- Print uses `dd/mm/yyyy`.
+- Generated timestamp uses `dd/mm/yyyy, 10:23:18 AM`.
+
+### Deployment
+
+- Vercel environment variables are set.
+- Supabase Auth redirect URLs are configured.
+- CSP does not block required production resources.
+- Response headers are present in production.
+
+---
+
+## 🗺️ Roadmap
+
+Potential future improvements:
+
+- Supabase Auth dashboard hardening review:
+  - password strength
+  - leaked password protection
+  - email confirmation/recovery settings
+  - CAPTCHA/Turnstile if needed
+- RLS verification pass.
+- Admin user management UI.
+- Dashboard charts and analytics.
+- Bulk entry mode.
+- Database backup/export workflow.
+- More granular audit logging.
+- Optional direct “Open Existing Entry” action from duplicate-entry warning.
+
+---
+
+## 📄 License
+
+Distributed under the MIT License.
+
+---
+
+## 🙏 Acknowledgments
+
+- [Next.js](https://nextjs.org/)
+- [React](https://react.dev/)
+- [Supabase](https://supabase.com/)
+- [Tailwind CSS](https://tailwindcss.com/)
+- [pdfmake](https://pdfmake.github.io/docs/)
+- [Vercel](https://vercel.com/)
+- [Lucide Icons](https://lucide.dev/)
+
+---
+
+## 📧 Support
+
+For internal support, contact the project maintainer.
+
+---
+
+Built with care for **Nandlal Laundry**.
+
+Last Updated: June 2026  
 Version: 2.0.0

@@ -1,8 +1,8 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { LAUNDRY_ITEMS } from '@/lib/laundry-items'
-import { generatePDF } from '@/lib/pdfExport'
+import { exportChangeHistoryPdf } from '@/lib/pdf/report-pdf'
 import type { CorrectionEntry } from '../types'
 import ActionButtons from './ActionButtons'
 import EmptyState from './EmptyState'
@@ -31,8 +31,7 @@ export default function ChangeHistory({
   onPrint,
 }: ChangeHistoryProps) {
   const [isFiltering, setIsFiltering] = useState(false)
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
-  const reportRef = useRef<HTMLDivElement>(null)
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)  
 
   const handleLoad = () => {
     setIsFiltering(true)
@@ -40,19 +39,16 @@ export default function ChangeHistory({
     setTimeout(() => setIsFiltering(false), 500)
   }
 
-  const handlePdfDownload = async () => {
-    if (!corrections.length || !reportRef.current) return
-
+  const handlePdfDownload = () => {
+    if (!corrections.length) return
+  
     setIsGeneratingPdf(true)
-
+  
     try {
-      const filename = `change_history_${startDate}_to_${endDate}.pdf`
-
-      await generatePDF(reportRef.current.id || 'change-history-content', {
-        filename,
-        title: `Change History - ${startDate} to ${endDate}`,
-        orientation: 'landscape',
-        margin: 10,
+      exportChangeHistoryPdf({
+        startDate,
+        endDate,
+        corrections,
       })
     } catch (error) {
       console.error('PDF generation failed:', error)
@@ -92,6 +88,24 @@ export default function ChangeHistory({
   const setMarch2026 = () => {
     onStartDateChange('2026-03-01')
     onEndDateChange('2026-03-31')
+  }
+
+  const formatDate = (value: string) => {
+    return new Date(value).toLocaleDateString('en-GB')
+  }
+  
+  const formatDateTime = () => {
+    const now = new Date()
+  
+    const date = now.toLocaleDateString('en-GB')
+    const time = now.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    })
+  
+    return `${date}, ${time}`
   }
 
   const getOriginalKey = (
@@ -232,7 +246,7 @@ export default function ChangeHistory({
               className="hover:bg-gray-50 print:hover:bg-transparent"
             >
               <td className="py-1.5 px-1 whitespace-nowrap text-center text-xs print:text-[5.5pt]">
-                {new Date(correction.entry_date).toLocaleDateString()}
+                {formatDate(correction.entry_date)}
               </td>
 
               <td className="py-1.5 px-1 font-medium truncate text-center text-xs print:text-[5.5pt] max-w-[100px]">
@@ -291,9 +305,7 @@ export default function ChangeHistory({
               </td>
 
               <td className="py-1.5 px-1 whitespace-nowrap text-center text-xs print:text-[5pt]">
-                {correction.created_at
-                  ? new Date(correction.created_at).toLocaleDateString()
-                  : 'N/A'}
+                {correction.created_at ? formatDate(correction.created_at) : 'N/A'}
               </td>
             </tr>
           ))}
@@ -379,11 +391,11 @@ export default function ChangeHistory({
           <p className="text-sm text-gray-500">
             Showing corrections for entries originally dated between{' '}
             <span className="font-medium text-gray-700">
-              {startDate ? new Date(startDate).toLocaleDateString() : '—'}
+            {startDate ? formatDate(startDate) : '—'}
             </span>{' '}
             and{' '}
             <span className="font-medium text-gray-700">
-              {endDate ? new Date(endDate).toLocaleDateString() : '—'}
+              {endDate ? formatDate(endDate) : '—'}
             </span>
           </p>
 
@@ -436,11 +448,7 @@ export default function ChangeHistory({
       </div>
 
       {/* Report Content - Wrapped for PDF/Print */}
-      <div
-        ref={reportRef}
-        id="change-history-content"
-        className="report-content"
-      >
+      <div id="change-history-content" className="report-content">
         {corrections.length > 0 ? (
           <div className="bg-white border overflow-hidden print:border-none">
             {/* Print/PDF Header - Only visible when printing or generating PDF */}
@@ -448,11 +456,10 @@ export default function ChangeHistory({
               <h1 className="text-xl font-bold">Nandlal Laundry</h1>
               <p className="text-sm">Change History Report</p>
               <p className="text-xs text-gray-600 mt-1">
-                Period: {new Date(startDate).toLocaleDateString()} to{' '}
-                {new Date(endDate).toLocaleDateString()}
+                Period: {formatDate(startDate)} to {formatDate(endDate)}
               </p>
               <p className="text-xs text-gray-600">
-                Generated: {new Date().toLocaleString()}
+              Generated: {formatDateTime()}
               </p>
             </div>
 
@@ -463,8 +470,7 @@ export default function ChangeHistory({
               </h2>
               <p className="text-lg font-bold">Change History Report</p>
               <p className="text-sm text-gray-500">
-                {new Date(startDate).toLocaleDateString()} to{' '}
-                {new Date(endDate).toLocaleDateString()}
+                {formatDate(startDate)} to {formatDate(endDate)}
               </p>
               <p className="text-xs text-gray-400 mt-1">
                 Total Corrections: {corrections.length}
@@ -481,7 +487,7 @@ export default function ChangeHistory({
                 </span>
 
                 <span className="text-gray-500 text-xs mt-2 sm:mt-0 print:hidden">
-                  Generated: {new Date().toLocaleString()}
+                Generated: {formatDateTime()}
                 </span>
               </div>
             </div>
@@ -500,7 +506,7 @@ export default function ChangeHistory({
         <EmptyState
           icon="📝"
           title="No corrections found"
-          message={`No corrections were found for entries originally dated between ${new Date(startDate).toLocaleDateString()} and ${new Date(endDate).toLocaleDateString()}`}
+          message={`No corrections were found for entries originally dated between ${formatDate(startDate)} and ${formatDate(endDate)}`}
         />
       )}
 

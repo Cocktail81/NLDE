@@ -1,3 +1,8 @@
+// Client-side auth helpers only.
+// Do not use this file for API route or server-side authorization.
+// Server routes must validate sessions using '@/lib/supabase/server'
+// and privileged operations must use '@/lib/supabase/admin' only after auth checks.
+
 import { supabase } from './supabase/client'
 
 export async function getSession() {

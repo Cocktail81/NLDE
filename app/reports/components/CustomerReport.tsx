@@ -1,8 +1,8 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { LAUNDRY_ITEMS } from '@/lib/laundry-items'
-import { generatePDF } from '@/lib/pdfExport'
+import { exportCustomerReportPdf } from '@/lib/pdf/report-pdf'
 import type { Customer, Entry } from '../types'
 import ActionButtons from './ActionButtons'
 import EmptyState from './EmptyState'
@@ -38,7 +38,6 @@ export default function CustomerReport({
 }: CustomerReportProps) {
   const [isFiltering, setIsFiltering] = useState(false)
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
-  const reportRef = useRef<HTMLDivElement>(null)
 
   const handleGenerate = () => {
     if (!selectedCustomer) return
@@ -48,20 +47,17 @@ export default function CustomerReport({
     setTimeout(() => setIsFiltering(false), 500)
   }
 
-  const handlePdfDownload = async () => {
-    if (!customerEntries.length || !reportRef.current) return
-
+  const handlePdfDownload = () => {
+    if (!customerEntries.length) return
+  
     setIsGeneratingPdf(true)
-
+  
     try {
-      const customerName = getCustomerName()
-      const filename = `${customerName}_report_${startDate}_to_${endDate}.pdf`
-
-      await generatePDF(reportRef.current.id || 'customer-report-content', {
-        filename,
-        title: `${customerName} - Customer Report`,
-        orientation: 'portrait',
-        margin: 10,
+      exportCustomerReportPdf({
+        customerName: getCustomerName(),
+        startDate,
+        endDate,
+        entries: customerEntries,
       })
     } catch (error) {
       console.error('PDF generation failed:', error)
@@ -119,6 +115,24 @@ export default function CustomerReport({
     })
   }
 
+  const formatDate = (value: string) => {
+    return new Date(value).toLocaleDateString('en-GB')
+  }
+  
+  const formatDateTime = () => {
+    const now = new Date()
+  
+    const date = now.toLocaleDateString('en-GB')
+    const time = now.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    })
+  
+    return `${date}, ${time}`
+  }
+
   const getCustomerName = () => {
     const customer = customers.find(customer => customer.id === selectedCustomer)
 
@@ -131,15 +145,15 @@ export default function CustomerReport({
         (sum, entry) => sum + entry[item.key],
         0
       )
-
+  
       return acc
     }, {} as Record<(typeof LAUNDRY_ITEMS)[number]['key'], number>)
-
+  
     const totalItems = customerEntries.reduce(
       (sum, entry) => sum + entry.total,
       0
     )
-
+  
     return {
       itemTotals,
       totalItems,
@@ -204,7 +218,7 @@ export default function CustomerReport({
               className="hover:bg-gray-50 print:hover:bg-transparent"
             >
               <td className="py-1.5 px-1 whitespace-nowrap text-center text-xs print:text-[6pt]">
-                {new Date(entry.entry_date).toLocaleDateString()}
+                {formatDate(entry.entry_date)}
               </td>
 
               {LAUNDRY_ITEMS.map(item => (
@@ -327,11 +341,11 @@ export default function CustomerReport({
                 </span>{' '}
                 from{' '}
                 <span className="font-medium text-gray-700">
-                  {startDate ? new Date(startDate).toLocaleDateString() : '—'}
+                  {startDate ? formatDate(startDate) : '—'}
                 </span>{' '}
                 to{' '}
                 <span className="font-medium text-gray-700">
-                  {endDate ? new Date(endDate).toLocaleDateString() : '—'}
+                  {endDate ? formatDate(endDate) : '—'}
                 </span>
               </>
             ) : (
@@ -388,11 +402,7 @@ export default function CustomerReport({
       </div>
 
       {/* Report Content - Wrapped for PDF/Print */}
-      <div
-        ref={reportRef}
-        id="customer-report-content"
-        className="report-content"
-      >
+      <div id="customer-report-content" className="report-content">
         {customerEntries.length > 0 ? (
           <div className="bg-white border overflow-hidden print:border-none">
             {/* Print/PDF Header - Only visible when printing or generating PDF */}
@@ -403,11 +413,10 @@ export default function CustomerReport({
                 Customer: {getCustomerName()}
               </p>
               <p className="text-xs text-gray-600">
-                Period: {new Date(startDate).toLocaleDateString()} to{' '}
-                {new Date(endDate).toLocaleDateString()}
+                Period: {formatDate(startDate)} to {formatDate(endDate)}
               </p>
               <p className="text-xs text-gray-600">
-                Generated: {new Date().toLocaleString()}
+                Generated: {formatDateTime()}
               </p>
             </div>
 
@@ -421,41 +430,38 @@ export default function CustomerReport({
                 {getCustomerName()}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {new Date(startDate).toLocaleDateString()} to{' '}
-                {new Date(endDate).toLocaleDateString()}
+                {formatDate(startDate)} to {formatDate(endDate)}
               </p>
             </div>
 
             {/* Summary Cards */}
-            <div className="p-4 print:p-2">
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
-                <div className="text-center p-3 bg-gray-50 rounded-lg print:border print:border-gray-300">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+              <div className="text-center p-3 bg-gray-50 rounded-lg print:border print:border-gray-300">
+                <div className="text-2xl font-bold text-gray-900 print:text-base">
+                  {summary.totalEntries}
+                </div>
+                <div className="text-xs text-gray-600">Entries</div>
+              </div>
+
+              {LAUNDRY_ITEMS.map(item => (
+                <div
+                  key={item.key}
+                  className="text-center p-3 bg-gray-50 rounded-lg print:border print:border-gray-300"
+                >
                   <div className="text-2xl font-bold text-gray-900 print:text-base">
-                    {summary.totalEntries}
+                    {summary.itemTotals[item.key]}
                   </div>
-                  <div className="text-xs text-gray-600">Entries</div>
+                  <div className="text-xs text-gray-600">
+                    {item.shortLabel}
+                  </div>
                 </div>
+              ))}
 
-                {LAUNDRY_ITEMS.map(item => (
-                  <div
-                    key={item.key}
-                    className="text-center p-3 bg-gray-50 rounded-lg print:border print:border-gray-300"
-                  >
-                    <div className="text-2xl font-bold text-gray-900 print:text-base">
-                      {summary.itemTotals[item.key]}
-                    </div>
-                    <div className="text-xs text-gray-600">
-                      {item.shortLabel}
-                    </div>
-                  </div>
-                ))}
-
-                <div className="text-center p-3 bg-blue-50 rounded-lg print:border print:border-gray-300">
-                  <div className="text-2xl font-bold text-blue-700 print:text-base">
-                    {summary.totalItems}
-                  </div>
-                  <div className="text-xs text-blue-600">Total Items</div>
+              <div className="text-center p-3 bg-blue-50 rounded-lg print:border print:border-gray-300">
+                <div className="text-2xl font-bold text-blue-700 print:text-base">
+                  {summary.totalItems}
                 </div>
+                <div className="text-xs text-blue-600">Total Items</div>
               </div>
             </div>
 
@@ -473,7 +479,7 @@ export default function CustomerReport({
                 </span>
 
                 <span className="text-gray-500 text-xs mt-2 sm:mt-0 print:hidden">
-                  Generated: {new Date().toLocaleString()}
+                  Generated: {formatDateTime()}
                 </span>
               </div>
             </div>
@@ -492,7 +498,7 @@ export default function CustomerReport({
         <EmptyState
           icon="👤"
           title="No entries found"
-          message={`No entries found for ${getCustomerName()} between ${new Date(startDate).toLocaleDateString()} and ${new Date(endDate).toLocaleDateString()}`}
+          message={`No entries found for ${getCustomerName()} between ${formatDate(startDate)} and ${formatDate(endDate)}`}
         />
       )}
 

@@ -1,8 +1,8 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { LAUNDRY_ITEMS } from '@/lib/laundry-items'
-import { generatePDF } from '@/lib/pdfExport'
+import { exportDailyReportPdf } from '@/lib/pdf/report-pdf'
 import type { DailySummary, Entry } from '../types'
 import ActionButtons from './ActionButtons'
 import EmptyState from './EmptyState'
@@ -30,8 +30,7 @@ export default function DailyReport({
   onPrint,
 }: DailyReportProps) {
   const [isFiltering, setIsFiltering] = useState(false)
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
-  const reportRef = useRef<HTMLDivElement>(null)
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)  
 
   const handleGenerate = () => {
     setIsFiltering(true)
@@ -39,19 +38,16 @@ export default function DailyReport({
     setTimeout(() => setIsFiltering(false), 500)
   }
 
-  const handlePdfDownload = async () => {
-    if (!dailyEntries.length || !reportRef.current) return
-
+  const handlePdfDownload = () => {
+    if (!dailyEntries.length || !dailySummary) return
+  
     setIsGeneratingPdf(true)
-
+  
     try {
-      const filename = `daily_report_${selectedDate}.pdf`
-
-      await generatePDF(reportRef.current.id || 'daily-report-content', {
-        filename,
-        title: `Daily Report - ${selectedDate}`,
-        orientation: 'portrait',
-        margin: 10,
+      exportDailyReportPdf({
+        selectedDate,
+        entries: dailyEntries,
+        summary: dailySummary,
       })
     } catch (error) {
       console.error('PDF generation failed:', error)
@@ -59,6 +55,24 @@ export default function DailyReport({
     } finally {
       setIsGeneratingPdf(false)
     }
+  }
+
+  const formatDate = (value: string) => {
+    return new Date(value).toLocaleDateString('en-GB')
+  }
+  
+  const formatDateTime = () => {
+    const now = new Date()
+  
+    const date = now.toLocaleDateString('en-GB')
+    const time = now.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    })
+  
+    return `${date}, ${time}`
   }
 
   const columnWidths = [
@@ -201,7 +215,7 @@ export default function DailyReport({
       </div>
 
       {/* Report Content - Wrapped for PDF/Print */}
-      <div ref={reportRef} id="daily-report-content" className="report-content">
+      <div id="daily-report-content" className="report-content">
         {dailyEntries.length > 0 && dailySummary ? (
           <div className="bg-white border overflow-hidden print:border-none">
             {/* Print/PDF Header - Only visible when printing or generating PDF */}
@@ -209,10 +223,10 @@ export default function DailyReport({
               <h1 className="text-xl font-bold">Nandlal Laundry</h1>
               <p className="text-sm">Daily Summary Report</p>
               <p className="text-xs text-gray-600 mt-1">
-                Date: {new Date(selectedDate).toLocaleDateString()}
+              Date: {formatDate(selectedDate)}
               </p>
               <p className="text-xs text-gray-600">
-                Generated: {new Date().toLocaleString()}
+                Generated: {formatDateTime()}
               </p>
             </div>
 
@@ -225,7 +239,7 @@ export default function DailyReport({
                 Daily Summary Report
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {new Date(selectedDate).toLocaleDateString()}
+                {formatDate(selectedDate)}
               </p>
             </div>
 
@@ -249,7 +263,7 @@ export default function DailyReport({
                 </span>
 
                 <span className="text-gray-500 text-xs mt-2 sm:mt-0 print:hidden">
-                  Generated: {new Date().toLocaleString()}
+                  Generated: {formatDateTime()}
                 </span>
               </div>
             </div>
@@ -267,7 +281,7 @@ export default function DailyReport({
       {dailyEntries.length === 0 && !loading && (
         <EmptyState
           icon="📅"
-          title={`No entries found for ${selectedDate}`}
+          title={`No entries found for ${formatDate(selectedDate)}`}
           message="Try a different date or add some entries"
         />
       )}

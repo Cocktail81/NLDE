@@ -467,14 +467,14 @@ export default function ReportsPage() {
       }, {} as Record<string, number>)
   
       return {
-        'Original Date': new Date(correction.entry_date).toLocaleDateString(),
+        'Original Date': formatReportDate(correction.entry_date),
         Customer: correction.customers?.name || 'Unknown',
         ...originalValues,
         ...correctedValues,
         ...changedValues,
         Reason: correction.correction_reason || 'N/A',
         'Corrected By': correction.corrected_by,
-        'Corrected At': new Date(correction.created_at).toLocaleString(),
+        'Corrected At': formatReportDateTime(correction.created_at),
       }
     })
   
@@ -491,7 +491,7 @@ export default function ReportsPage() {
     ]
   
     const data = sortByEntryDateAsc(customerEntries).map(entry => ({
-      Date: new Date(entry.entry_date).toLocaleDateString(),
+      Date: formatReportDate(entry.entry_date),
       ...LAUNDRY_ITEMS.reduce((acc, item) => {
         acc[item.shortLabel] = entry[item.key]
         return acc
@@ -522,7 +522,7 @@ export default function ReportsPage() {
     ]
   
     const data = sortByEntryDateAsc(rangeEntries).map(entry => ({
-      Date: new Date(entry.entry_date).toLocaleDateString(),
+      Date: formatReportDate(entry.entry_date),
       Customer: entry.customer_name,
       ...LAUNDRY_ITEMS.reduce((acc, item) => {
         acc[item.shortLabel] = entry[item.key]
@@ -543,6 +543,24 @@ export default function ReportsPage() {
     )
   }
 
+  const formatReportDate = (value: string) => {
+    return new Date(value).toLocaleDateString('en-GB')
+  }
+
+  const formatReportDateTime = (value: string) => {
+    const date = new Date(value)
+  
+    const dateText = date.toLocaleDateString('en-GB')
+    const timeText = date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    })
+  
+    return `${dateText}, ${timeText}`
+  }
+
   const handlePrint = () => {
     let title = ''
     let subtitle = ''
@@ -552,7 +570,7 @@ export default function ReportsPage() {
 
     if (activeTab === 'daily' && dailySummary) {
       title = 'Daily Summary Report'
-      subtitle = new Date(selectedDate).toLocaleDateString()
+      subtitle = formatReportDate(selectedDate)
       additionalInfo = [
         { label: 'Total Entries', value: dailySummary.total_entries },
         { label: 'Total Items', value: dailySummary.grand_total },
@@ -563,7 +581,7 @@ export default function ReportsPage() {
       ]
     } else if (activeTab === 'history' && corrections.length > 0) {
       title = 'Change History Report'
-      dateRange = `${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`
+      dateRange = `${formatReportDate(startDate)} - ${formatReportDate(endDate)}`
       additionalInfo = [
         { label: 'Total Corrections', value: corrections.length }
       ]
@@ -571,7 +589,7 @@ export default function ReportsPage() {
       const customer = customers.find(c => c.id === selectedCustomer)
       title = 'Customer Report'
       subtitle = customer?.name || ''
-      dateRange = `${new Date(customerStartDate).toLocaleDateString()} - ${new Date(customerEndDate).toLocaleDateString()}`
+      dateRange = `${formatReportDate(customerStartDate)} - ${formatReportDate(customerEndDate)}`
       const totalItems = customerEntries.reduce((sum, e) => sum + e.total, 0)
       additionalInfo = [
         { label: 'Total Visits', value: customerEntries.length },
@@ -583,7 +601,7 @@ export default function ReportsPage() {
       ]
     } else if (activeTab === 'daterange' && rangeSummary) {
       title = 'Date Range Report'
-      dateRange = `${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`
+      dateRange = `${formatReportDate(startDate)} - ${formatReportDate(endDate)}`
       if (dateRangeCustomer !== 'all') {
         const customer = customers.find(c => c.id === dateRangeCustomer)
         customerName = customer?.name || ''
@@ -598,13 +616,17 @@ export default function ReportsPage() {
       ]
     }
 
+    if (!title) return
+
     printReport({
       title,
       subtitle,
       dateRange,
       customerName,
       companyName: 'Nandlal Laundry',
-      additionalInfo
+      additionalInfo,
+      orientation: 'landscape',
+      compact: activeTab === 'history',
     })
   }
 

@@ -1,8 +1,8 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { LAUNDRY_ITEMS } from '@/lib/laundry-items'
-import { generatePDF } from '@/lib/pdfExport'
+import { exportDateRangeReportPdf } from '@/lib/pdf/report-pdf'
 import type { Customer, DailySummary, Entry } from '../types'
 import ActionButtons from './ActionButtons'
 import EmptyState from './EmptyState'
@@ -39,8 +39,7 @@ export default function DateRangeReport({
   onPrint,
 }: DateRangeReportProps) {
   const [isFiltering, setIsFiltering] = useState(false)
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
-  const reportRef = useRef<HTMLDivElement>(null)
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)  
 
   const handleGenerate = () => {
     setIsFiltering(true)
@@ -48,24 +47,19 @@ export default function DateRangeReport({
     setTimeout(() => setIsFiltering(false), 500)
   }
 
-  const handlePdfDownload = async () => {
-    if (!rangeEntries.length || !reportRef.current) return
-
+  const handlePdfDownload = () => {
+    if (!rangeEntries.length) return
+  
     setIsGeneratingPdf(true)
-
+  
     try {
-      const customerLabel =
-        selectedCustomer === 'all'
-          ? 'all_customers'
-          : getCustomerDisplay().replace(/\s+/g, '_')
-
-      const filename = `date_range_report_${customerLabel}_${startDate}_to_${endDate}.pdf`
-
-      await generatePDF(reportRef.current.id || 'date-range-report-content', {
-        filename,
-        title: `Date Range Report - ${startDate} to ${endDate}`,
-        orientation: 'portrait',
-        margin: 10,
+      exportDateRangeReportPdf({
+        startDate,
+        endDate,
+        customerLabel: getCustomerDisplay(),
+        entries: rangeEntries,
+        summary,
+        uniqueCustomers,
       })
     } catch (error) {
       console.error('PDF generation failed:', error)
@@ -118,6 +112,24 @@ export default function DateRangeReport({
       month: 'long',
       year: 'numeric',
     })
+  }
+
+  const formatDate = (value: string) => {
+    return new Date(value).toLocaleDateString('en-GB')
+  }
+  
+  const formatDateTime = () => {
+    const now = new Date()
+  
+    const date = now.toLocaleDateString('en-GB')
+    const time = now.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    })
+  
+    return `${date}, ${time}`
   }
 
   const getCustomerDisplay = () => {
@@ -214,7 +226,7 @@ export default function DateRangeReport({
               className="hover:bg-gray-50 print:hover:bg-transparent"
             >
               <td className="py-1.5 px-0.5 whitespace-nowrap text-center text-xs print:text-[5.5pt]">
-                {new Date(entry.entry_date).toLocaleDateString()}
+                {formatDate(entry.entry_date)}
               </td>
 
               <td className="py-1.5 px-0.5 font-medium truncate text-center text-xs print:text-[5.5pt] max-w-[100px]">
@@ -342,11 +354,11 @@ export default function DateRangeReport({
           <p className="text-sm text-gray-500">
             Showing entries from{' '}
             <span className="font-medium text-gray-700">
-              {startDate ? new Date(startDate).toLocaleDateString() : '—'}
+              {startDate ? formatDate(startDate) : '—'}
             </span>{' '}
             to{' '}
             <span className="font-medium text-gray-700">
-              {endDate ? new Date(endDate).toLocaleDateString() : '—'}
+              {endDate ? formatDate(endDate) : '—'}
             </span>
 
             {selectedCustomer !== 'all' && (
@@ -409,11 +421,7 @@ export default function DateRangeReport({
       </div>
 
       {/* Report Content - Wrapped for PDF/Print */}
-      <div
-        ref={reportRef}
-        id="date-range-report-content"
-        className="report-content"
-      >
+      <div id="date-range-report-content" className="report-content">
         {rangeEntries.length > 0 ? (
           <div className="bg-white border overflow-hidden print:border-none">
             {/* Print/PDF Header - Only visible when printing or generating PDF */}
@@ -426,11 +434,10 @@ export default function DateRangeReport({
                   : 'All Customers'}
               </p>
               <p className="text-xs text-gray-600">
-                Period: {new Date(startDate).toLocaleDateString()} to{' '}
-                {new Date(endDate).toLocaleDateString()}
+                Period: {formatDate(startDate)} to {formatDate(endDate)}
               </p>
               <p className="text-xs text-gray-600">
-                Generated: {new Date().toLocaleString()}
+                Generated: {formatDateTime()}
               </p>
             </div>
 
@@ -444,48 +451,45 @@ export default function DateRangeReport({
                 {getCustomerDisplay()}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {new Date(startDate).toLocaleDateString()} to{' '}
-                {new Date(endDate).toLocaleDateString()}
+                {formatDate(startDate)} to {formatDate(endDate)}
               </p>
             </div>
 
             {/* Summary Cards */}
-            <div className="p-4 print:p-2">
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-4">
-                <div className="text-center p-2 bg-gray-50 rounded-lg print:border print:border-gray-300">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-4">
+              <div className="text-center p-2 bg-gray-50 rounded-lg print:border print:border-gray-300">
+                <div className="text-xl font-bold text-gray-900 print:text-sm">
+                  {summary.total_entries}
+                </div>
+                <div className="text-xs text-gray-600">Entries</div>
+              </div>
+
+              {LAUNDRY_ITEMS.map(item => (
+                <div
+                  key={item.key}
+                  className="text-center p-2 bg-gray-50 rounded-lg print:border print:border-gray-300"
+                >
                   <div className="text-xl font-bold text-gray-900 print:text-sm">
-                    {summary.total_entries}
+                    {summary.item_totals[item.key]}
                   </div>
-                  <div className="text-xs text-gray-600">Entries</div>
+                  <div className="text-xs text-gray-600">
+                    {item.shortLabel}
+                  </div>
                 </div>
+              ))}
 
-                {LAUNDRY_ITEMS.map(item => (
-                  <div
-                    key={item.key}
-                    className="text-center p-2 bg-gray-50 rounded-lg print:border print:border-gray-300"
-                  >
-                    <div className="text-xl font-bold text-gray-900 print:text-sm">
-                      {summary.item_totals[item.key]}
-                    </div>
-                    <div className="text-xs text-gray-600">
-                      {item.shortLabel}
-                    </div>
-                  </div>
-                ))}
-
-                <div className="text-center p-2 bg-blue-50 rounded-lg print:border print:border-gray-300">
-                  <div className="text-xl font-bold text-blue-700 print:text-sm">
-                    {summary.grand_total}
-                  </div>
-                  <div className="text-xs text-blue-600">Total Items</div>
+              <div className="text-center p-2 bg-blue-50 rounded-lg print:border print:border-gray-300">
+                <div className="text-xl font-bold text-blue-700 print:text-sm">
+                  {summary.grand_total}
                 </div>
+                <div className="text-xs text-blue-600">Total Items</div>
+              </div>
 
-                <div className="text-center p-2 bg-gray-50 rounded-lg print:border print:border-gray-300">
-                  <div className="text-xl font-bold text-gray-900 print:text-sm">
-                    {uniqueCustomers}
-                  </div>
-                  <div className="text-xs text-gray-600">Customers</div>
+              <div className="text-center p-2 bg-gray-50 rounded-lg print:border print:border-gray-300">
+                <div className="text-xl font-bold text-gray-900 print:text-sm">
+                  {uniqueCustomers}
                 </div>
+                <div className="text-xs text-gray-600">Customers</div>
               </div>
             </div>
 
@@ -504,7 +508,7 @@ export default function DateRangeReport({
                 </span>
 
                 <span className="text-gray-500 text-xs mt-2 sm:mt-0 print:hidden">
-                  Generated: {new Date().toLocaleString()}
+                  Generated: {formatDateTime()}
                 </span>
               </div>
             </div>
@@ -523,7 +527,7 @@ export default function DateRangeReport({
         <EmptyState
           icon="📊"
           title="No entries found"
-          message={`No entries found${selectedCustomer !== 'all' ? ` for ${getCustomerDisplay()}` : ''} between ${new Date(startDate).toLocaleDateString()} and ${new Date(endDate).toLocaleDateString()}`}
+          message={`No entries found${selectedCustomer !== 'all' ? ` for ${getCustomerDisplay()}` : ''} between ${formatDate(startDate)} and ${formatDate(endDate)}`}
         />
       )}
 
