@@ -47,9 +47,9 @@ interface LaundryItem {
     },
     {
       key: 'dry_cleaning',
-      label: 'Dry Cleaning',
-      shortLabel: 'Dry Cleaning',
-      description: 'General dry cleaning service',
+      label: ' Saree Dry Cleaning',
+      shortLabel: 'Saree Dry Cleaning',
+      description: 'Saree dry cleaning service',
     },
     {
       key: 'dress_dc',
