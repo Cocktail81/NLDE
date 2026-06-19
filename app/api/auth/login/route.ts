@@ -4,17 +4,33 @@ import { createClient } from '@/lib/supabase/server'
 
 const MAX_FAILED_ATTEMPTS = 5
 const WINDOW_SECONDS = 10 * 60
+const MAX_EMAIL_LENGTH = 254
+const MAX_PASSWORD_LENGTH = 256
+const MAX_USER_AGENT_LENGTH = 512
 
 function getClientIp(request: NextRequest) {
-  const forwardedFor = request.headers.get('x-forwarded-for')
+  const vercelForwardedFor = request.headers.get('x-vercel-forwarded-for')
+  const cfConnectingIp = request.headers.get('cf-connecting-ip')
   const realIp = request.headers.get('x-real-ip')
-  const cfIp = request.headers.get('cf-connecting-ip')
+  const forwardedFor = request.headers.get('x-forwarded-for')
+
+  if (vercelForwardedFor) {
+    return vercelForwardedFor.split(',')[0]?.trim() || 'unknown'
+  }
+
+  if (cfConnectingIp) {
+    return cfConnectingIp.trim()
+  }
+
+  if (realIp) {
+    return realIp.trim()
+  }
 
   if (forwardedFor) {
     return forwardedFor.split(',')[0]?.trim() || 'unknown'
   }
 
-  return cfIp || realIp || 'unknown'
+  return 'unknown'
 }
 
 async function countFailedAttempts(params: {
@@ -135,11 +151,20 @@ export async function POST(request: NextRequest) {
     const email = body.email?.trim().toLowerCase()
     const password = body.password || ''
     const ipAddress = getClientIp(request)
-    const userAgent = request.headers.get('user-agent') || 'unknown'
+    const userAgent =
+      request.headers.get('user-agent')?.slice(0, MAX_USER_AGENT_LENGTH) ||
+      'unknown'
 
     if (!email || !password) {
       return NextResponse.json(
         { error: 'Please enter both email address and password.' },
+        { status: 400 }
+      )
+    }
+
+    if (email.length > MAX_EMAIL_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
+      return NextResponse.json(
+        { error: 'Invalid email or password.' },
         { status: 400 }
       )
     }
@@ -205,25 +230,31 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json(
         {
-          error: `Invalid email or password. ${remainingAttempts} attempt(s) remaining.`,
+          error: 'Invalid email or password.',
           remainingAttempts,
         },
         { status: 401 }
       )
     }
 
-    await recordLoginAttempt({
-      email,
-      ipAddress,
-      success: true,
-      reason: 'login_success',
-      userAgent,
-    })
-
-    await clearFailedAttempts({
-      email,
-      ipAddress,
-    })
+    try {
+      await recordLoginAttempt({
+        email,
+        ipAddress,
+        success: true,
+        reason: 'login_success',
+        userAgent,
+      })
+    
+      await clearFailedAttempts({
+        email,
+        ipAddress,
+      })
+    } catch (auditError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('[Login audit cleanup error]', auditError)
+      }
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {

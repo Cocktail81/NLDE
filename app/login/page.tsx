@@ -4,6 +4,8 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 
+
+
 const CURRENT_YEAR = new Date().getFullYear()
 const COPYRIGHT_START_YEAR = 2026
 const LOCKOUT_SECONDS = 60
@@ -20,16 +22,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showPassword, setShowPassword] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)  
   const [lockoutUntil, setLockoutUntil] = useState<number | null>(null)
-  const [remainingLockoutSeconds, setRemainingLockoutSeconds] = useState(0)
+  const [remainingLockoutSeconds, setRemainingLockoutSeconds] = useState(0)  
 
   const isLoginDisabled =
     loading ||
     !email.trim() ||
     !password ||
-    remainingLockoutSeconds > 0
-
+    remainingLockoutSeconds > 0;
     useEffect(() => {
       if (!lockoutUntil) return
     
@@ -68,6 +69,8 @@ export default function LoginPage() {
         setError(null)
       }
     }
+    
+    
 
     const handleLogin = async (e: FormEvent) => {
       e.preventDefault()
@@ -191,7 +194,7 @@ export default function LoginPage() {
                 onChange={event => handleEmailChange(event.target.value)}
                 required
                 disabled={loading || remainingLockoutSeconds > 0}
-                autoComplete="off"
+                autoComplete="username"
                 className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:opacity-50 text-gray-800 placeholder-gray-500 bg-white"
               />
             </div>
@@ -211,20 +214,19 @@ export default function LoginPage() {
                   value={password}
                   onChange={event => handlePasswordChange(event.target.value)}
                   required
-                  disabled={loading}
+                  disabled={loading || remainingLockoutSeconds > 0}
                   autoComplete="current-password"
                   className="w-full px-4 py-3 pr-20 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:opacity-50 text-gray-800 placeholder-gray-500 bg-white"
                 />
-
                 <button
                   type="button"
                   onClick={() => setShowPassword(prev => !prev)}
-                  disabled={loading || !password}
+                  disabled={loading || remainingLockoutSeconds > 0 || !password}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-400"
                 >
                   {showPassword ? 'Hide' : 'Show'}
-                </button>
+                </button>                
               </div>
             </div>
           </div>

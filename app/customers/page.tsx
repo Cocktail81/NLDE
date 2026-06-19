@@ -15,6 +15,11 @@ interface Customer {
   is_active: boolean
 }
 
+interface InactiveCustomerMatch {
+  id: string
+  name: string
+}
+
 export default function CustomersPage() {
   const router = useRouter()
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -24,7 +29,9 @@ export default function CustomersPage() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [newCustomerName, setNewCustomerName] = useState('')
   const [addingCustomer, setAddingCustomer] = useState(false)
-   const [previousSearchTerm, setPreviousSearchTerm] = useState('')
+  const [inactiveCustomerMatch, setInactiveCustomerMatch] =
+  useState<InactiveCustomerMatch | null>(null)
+  const [previousSearchTerm, setPreviousSearchTerm] = useState('')
   
   
   // Pagination state
@@ -108,31 +115,215 @@ export default function CustomersPage() {
     setLoading(false)
   }, [currentPage, pageSize, searchTerm, previousSearchTerm])
 
+
+  const formatCustomerName = (value: string) => {
+    return value
+      .trim()
+      .replace(/\s+/g, ' ')
+      .split(' ')
+      .map(word => {
+        if (!word) return word
+  
+        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+      })
+      .join(' ')
+  }
+  
+  const getCustomerLookupName = (value: string) => {
+    return formatCustomerName(value).toLowerCase()
+  }
+  
+  const getActiveCustomerByName = async (lookupName: string) => {
+    return supabase
+      .from('customers')
+      .select('id, name')
+      .eq('is_active', true)
+      .ilike('name', lookupName)
+      .limit(1)
+      .maybeSingle()
+  }
+  
+  const getInactiveCustomerByName = async (lookupName: string) => {
+    return supabase
+      .from('customers')
+      .select('id, name')
+      .eq('is_active', false)
+      .ilike('name', lookupName)
+      .limit(1)
+      .maybeSingle()
+  }
+  
+  const getCustomerEntryCount = async (customerId: string) => {
+    return supabase
+      .from('entries')
+      .select('id', { count: 'exact', head: true })
+      .eq('customer_id', customerId)
+  }
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newCustomerName.trim()) return
-
+  
+    const displayName = formatCustomerName(newCustomerName)
+    const lookupName = getCustomerLookupName(newCustomerName)
+  
+    if (!displayName) return
+  
     setAddingCustomer(true)
-    const { data: { session } } = await supabase.auth.getSession()
-    
-    const { error } = await supabase
-      .from('customers')
-      .insert([
-        {
-          name: newCustomerName.trim(),
-          created_by: session?.user?.id
+    setInactiveCustomerMatch(null)
+  
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+  
+      if (!session) {
+        alert('Your session has expired. Please log in again.')
+        router.push('/login')
+        return
+      }
+  
+      const {
+        data: activeCustomer,
+        error: activeCustomerError,
+      } = await getActiveCustomerByName(lookupName)
+  
+      if (activeCustomerError) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Error checking active customer:', activeCustomerError)
         }
+  
+        alert('Unable to check existing customers. Please try again.')
+        return
+      }
+  
+      if (activeCustomer) {
+        alert('Customer name already exists.')
+        return
+      }
+  
+      const {
+        data: inactiveCustomer,
+        error: inactiveCustomerError,
+      } = await getInactiveCustomerByName(lookupName)
+  
+      if (inactiveCustomerError) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Error checking inactive customer:', inactiveCustomerError)
+        }
+  
+        alert('Unable to check inactive customers. Please try again.')
+        return
+      }
+  
+      if (inactiveCustomer) {
+        const {
+          count: entryCount,
+          error: entryCountError,
+        } = await getCustomerEntryCount(inactiveCustomer.id)
+  
+        if (entryCountError) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.error('Error checking customer entries:', entryCountError)
+          }
+  
+          alert('Unable to verify customer history. Please try again.')
+          return
+        }
+  
+        if ((entryCount || 0) > 0) {
+          alert(
+            'A customer with this name already exists but is inactive and has previous entries. For data safety, please create the customer with a different name.'
+          )
+          return
+        }
+  
+        setInactiveCustomerMatch({
+          id: inactiveCustomer.id,
+          name: inactiveCustomer.name,
+        })
+        return
+      }
+  
+      const { error: insertError } = await supabase.from('customers').insert([
+        {
+          name: displayName,
+          created_by: session.user.id,
+        },
       ])
-
-    if (!error) {
+  
+      if (insertError) {
+        if (insertError.code === '23505') {
+          alert('Customer name already exists.')
+          return
+        }
+  
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Error adding customer:', insertError)
+        }
+  
+        alert('Unable to add customer. Please try again.')
+        return
+      }
+  
       setNewCustomerName('')
       setShowAddModal(false)
-      setCurrentPage(1) // Reset to first page after adding
+      setCurrentPage(1)
       await fetchCustomers()
-    } else {
-      alert(`Error adding customer: ${error.message}`)
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Unexpected error adding customer:', error)
+      }
+  
+      alert('An unexpected error occurred while adding the customer.')
+    } finally {
+      setAddingCustomer(false)
     }
-    setAddingCustomer(false)
+  }
+
+  const handleReactivateCustomer = async () => {
+    if (!inactiveCustomerMatch) return
+  
+    setAddingCustomer(true)
+  
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+  
+      if (!session) {
+        alert('Your session has expired. Please log in again.')
+        router.push('/login')
+        return
+      }
+  
+      const { error } = await supabase
+        .from('customers')
+        .update({ is_active: true })
+        .eq('id', inactiveCustomerMatch.id)
+        .eq('is_active', false)
+  
+      if (error) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Error reactivating customer:', error)
+        }
+  
+        alert('Unable to reactivate customer. Please try again.')
+        return
+      }
+  
+      setNewCustomerName('')
+      setInactiveCustomerMatch(null)
+      setShowAddModal(false)
+      setCurrentPage(1)
+      await fetchCustomers()
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Unexpected error reactivating customer:', error)
+      }
+  
+      alert('An unexpected error occurred while reactivating the customer.')
+    } finally {
+      setAddingCustomer(false)
+    }
   }
 
   const handleDeleteCustomer = async (customerId: string) => {
@@ -368,7 +559,10 @@ export default function CustomersPage() {
                   <input
                     type="text"
                     value={newCustomerName}
-                    onChange={(e) => setNewCustomerName(e.target.value)}
+                    onChange={event => {
+                      setNewCustomerName(event.target.value)
+                      setInactiveCustomerMatch(null)
+                    }}
                     placeholder="Enter customer name"
                     className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-gray-800"
                     required
@@ -377,11 +571,34 @@ export default function CustomersPage() {
                   <p className="text-sm text-gray-500 mt-2">
                     Customer names must be unique
                   </p>
+                  {inactiveCustomerMatch && (
+                  <div className="mt-4 rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-900">
+                    <p className="font-semibold">Inactive customer found</p>
+                    <p className="mt-1">
+                      “{inactiveCustomerMatch.name}” already exists but is inactive and has no
+                      entries. You can reactivate this customer instead of creating a duplicate.
+                    </p>
+
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={handleReactivateCustomer}
+                        disabled={addingCustomer}
+                        className="px-3 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {addingCustomer ? 'Reactivating...' : 'Reactivate Customer'}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 </div>
                 <div className="flex justify-end space-x-3">
                   <button
                     type="button"
-                    onClick={() => setShowAddModal(false)}
+                    onClick={() => {
+                      setShowAddModal(false)
+                      setInactiveCustomerMatch(null)
+                    }}
                     className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
                     disabled={addingCustomer}
                   >
